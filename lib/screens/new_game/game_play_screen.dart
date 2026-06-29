@@ -92,10 +92,11 @@ class _GamePlayScreenState extends State<GamePlayScreen>
 
   String _getEcoCrisisCardPath() {
     final level = gameRound.currentEcoCrisisLevel;
+    final variant = gameRound.currentEcoCrisisVariant;
     final region = gameRound.selectedRegion;
-    // Format: assets/eco_crisis_card/Eco Crisis Card-{Region}-Back/{Level} - 1.png
+    // Format: assets/eco_crisis_card/Eco Crisis Card-{Region}-Back/{Level} - {Variant}.png
     final path =
-        'assets/eco_crisis_card/Eco Crisis Card-$region-Back/$level - 1.png';
+        'assets/eco_crisis_card/Eco Crisis Card-$region-Back/$level - $variant.png';
     return path;
   }
 
@@ -303,6 +304,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       setState(() {
         _crisisTokenPosition = (_crisisTokenPosition + 1).clamp(0, 13);
         _showResultFeedback = true;
+        // Increase eco crisis level for next round even on fail
+        gameRound.updateEcoCrisisLevel(currentLevel + 1);
       });
 
       // Force card refresh
@@ -425,6 +428,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         setState(() {
           _crisisTokenPosition = (_crisisTokenPosition + 1).clamp(0, 13);
           _showResultFeedback = true;
+          // Increase eco crisis level for next round even on fail
+          gameRound.updateEcoCrisisLevel(currentLevel + 1);
         });
 
         // Force card refresh

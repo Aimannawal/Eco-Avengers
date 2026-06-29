@@ -1,4 +1,6 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+
 
 // Action Card Model
 class ActionCard {
@@ -62,6 +64,18 @@ class GameRound {
   String selectedRegion = 'Africa';
   late final int initialEcoCrisisLevel;
   late int currentEcoCrisisLevel;
+  int currentEcoCrisisVariant = 1;
+  
+  // Max variants for each region and level
+  // Maps region -> level -> max variants
+  static const Map<String, Map<int, int>> _maxVariants = {
+    'Africa': {3: 2, 4: 5, 5: 2},
+    'Asia': {3: 2, 4: 5, 5: 2},
+    'Central & South America': {3: 3, 4: 5, 5: 1},
+    'Europe': {3: 3, 4: 4, 5: 2},
+    'North America': {3: 3, 4: 5, 5: 1},
+  };
+
   
   // Current state
   int energy = 0;
@@ -112,6 +126,13 @@ class GameRound {
   void _initializeEcoCrisis() {
     initialEcoCrisisLevel = _getLevelByDifficulty();
     currentEcoCrisisLevel = initialEcoCrisisLevel;
+    _randomizeVariant();
+  }
+
+  void _randomizeVariant() {
+    int maxVar = _maxVariants[selectedRegion]?[currentEcoCrisisLevel] ?? 1;
+    // Randomize variant between 1 and maxVar
+    currentEcoCrisisVariant = math.Random().nextInt(maxVar) + 1;
   }
 
   int _getLevelByDifficulty() {
@@ -129,10 +150,13 @@ class GameRound {
 
   void setRegion(String region) {
     selectedRegion = region;
+    _randomizeVariant();
   }
 
   void updateEcoCrisisLevel(int newLevel) {
-    currentEcoCrisisLevel = newLevel;
+    // Randomize level between 3, 4, and 5 so the cards are completely unpredictable
+    currentEcoCrisisLevel = 3 + math.Random().nextInt(3);
+    _randomizeVariant();
   }
 
   void _initializeByDifficulty() {
