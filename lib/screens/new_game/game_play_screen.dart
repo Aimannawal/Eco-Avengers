@@ -246,21 +246,40 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     super.dispose();
   }
 
-  /// Maps a region name to the badge type it awards on WIN.
-  String _getBadgeTypeForRegion(String region) {
+  /// Maps a specific card (Region, Level, Variant) to the badge type it awards on WIN.
+  String _getBadgeTypeForCard(String region, int level, int variant) {
+    final cardId = '$level - $variant';
+    
     switch (region) {
-      case 'North America':
-      case 'Central & South America':
-        return 'climate';
-      case 'Europe':
-      case 'Asia':
-        return 'energy';
       case 'Africa':
-      case 'Oceania':
-        return 'ecology';
-      default:
-        return 'climate';
+        if (const ['3 - 1', '4 - 1', '4 - 2'].contains(cardId)) return 'climate';
+        if (const ['4 - 3', '4 - 4', '5 - 1'].contains(cardId)) return 'energy';
+        if (const ['3 - 2', '4 - 5', '5 - 2'].contains(cardId)) return 'ecology';
+        break;
+      case 'Asia':
+        if (const ['3 - 1', '4 - 1', '5 - 1'].contains(cardId)) return 'climate';
+        if (const ['4 - 2', '4 - 3', '5 - 2'].contains(cardId)) return 'energy';
+        if (const ['3 - 2', '4 - 4', '4 - 5'].contains(cardId)) return 'ecology';
+        break;
+      case 'Central & South America':
+        if (const ['3 - 1', '4 - 1', '4 - 2'].contains(cardId)) return 'climate';
+        if (const ['3 - 2', '4 - 3', '4 - 4'].contains(cardId)) return 'energy';
+        if (const ['3 - 3', '4 - 5', '5 - 1'].contains(cardId)) return 'ecology';
+        break;
+      case 'Europe':
+        if (const ['3 - 1', '4 - 1', '5 - 1'].contains(cardId)) return 'climate';
+        if (const ['3 - 2', '4 - 2', '5 - 2'].contains(cardId)) return 'energy';
+        if (const ['3 - 3', '4 - 3', '4 - 4'].contains(cardId)) return 'ecology';
+        break;
+      case 'North America':
+        if (const ['3 - 1', '4 - 1', '5 - 1'].contains(cardId)) return 'climate';
+        if (const ['3 - 2', '4 - 2', '4 - 3'].contains(cardId)) return 'energy';
+        if (const ['3 - 3', '4 - 5', '4 - 4'].contains(cardId)) return 'ecology';
+        break;
     }
+    
+    // Default fallback
+    return 'climate';
   }
 
   void _showCharacterSheet(CharacterOption character) {
@@ -289,6 +308,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
 
   void _handleSpinResult(String result) {
     final currentLevel = gameRound.currentEcoCrisisLevel;
+    final currentVariant = gameRound.currentEcoCrisisVariant;
     final resultLevel = int.tryParse(result) ?? 0;
 
     // Debug output
@@ -342,8 +362,12 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         // WIN
         print('Result: WIN');
 
-        // Unlock badge for the current region
-        final badgeType = _getBadgeTypeForRegion(gameRound.selectedRegion);
+        // Unlock badge based on the exact card played
+        final badgeType = _getBadgeTypeForCard(
+          gameRound.selectedRegion,
+          currentLevel,
+          currentVariant,
+        );
         final badgeUnlocked = gameRound.unlockBadge(badgeType);
 
         setState(() {
