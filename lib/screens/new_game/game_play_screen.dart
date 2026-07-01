@@ -745,8 +745,30 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   void _handleSpinResult(String result) {
     final currentLevel = gameRound.currentEcoCrisisLevel;
     final currentVariant = gameRound.currentEcoCrisisVariant;
+    
+    // Determine current eco crisis type (climate, ecology, or energy)
+    final ecoCrisisType = _getBadgeTypeForCard(
+      gameRound.selectedRegion,
+      currentLevel,
+      currentVariant,
+    );
+
+    // Apply character passive skills FIRST - only reduce if type matches
+    String? characterName = selectedCharacter?.title.toLowerCase();
+    if (characterName == 'climate engineer' && ecoCrisisType == 'climate') {
+      final reducedLevel = (currentLevel - 1).clamp(1, 5);
+      gameRound.currentEcoCrisisLevel = reducedLevel;
+    } else if (characterName == 'ecologist' && ecoCrisisType == 'ecology') {
+      final reducedLevel = (currentLevel - 1).clamp(1, 5);
+      gameRound.currentEcoCrisisLevel = reducedLevel;
+    } else if (characterName == 'energy scientist' && ecoCrisisType == 'energy') {
+      final reducedLevel = (currentLevel - 1).clamp(1, 5);
+      gameRound.currentEcoCrisisLevel = reducedLevel;
+    }
+
+    // NOW calculate effectiveLevel from the potentially reduced level
     // Apply Card 1 buff: treat level as lower (can stack)
-    final effectiveLevel = (currentLevel - gameRound.difficultyReduction).clamp(
+    final effectiveLevel = (gameRound.currentEcoCrisisLevel - gameRound.difficultyReduction).clamp(
       1,
       99,
     );
@@ -834,6 +856,16 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           // User asked for this logic
           gameRound.randomizeEcoCrisisLevel();
         });
+
+        // Apply character passive: Environmental Activist gets +1 extra step on win
+        if (characterName == 'environmental activist') {
+          setState(() {
+            _sustainableTokenPosition = (_sustainableTokenPosition + 1).clamp(
+              0,
+              13,
+            );
+          });
+        }
 
         // Show badge unlock notification
         if (badgeUnlocked && mounted) {
@@ -946,6 +978,86 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       }
     }
     print('==================');
+  }
+
+  /// Helper method to get character name from selectedCharacter
+  String? _getCharacterName() {
+    return selectedCharacter?.title.toLowerCase();
+  }
+
+  /// Build character passive skill badge - only show if passive applies to current eco crisis type
+  Widget _buildCharacterPassiveBadge() {
+    if (selectedCharacter == null) {
+      return const SizedBox.shrink();
+    }
+
+    final charName = selectedCharacter!.title.toLowerCase();
+    final currentLevel = gameRound.currentEcoCrisisLevel;
+    final currentVariant = gameRound.currentEcoCrisisVariant;
+    
+    // Determine current eco crisis type
+    final ecoCrisisType = _getBadgeTypeForCard(
+      gameRound.selectedRegion,
+      currentLevel,
+      currentVariant,
+    );
+
+    String badgeText = '';
+    Color badgeColor = Colors.grey;
+    bool showBadge = false;
+
+    // Only show badge if character passive applies to THIS eco crisis type
+    if (charName == 'climate engineer' && ecoCrisisType == 'climate') {
+      badgeText = '-1 Level';
+      badgeColor = const Color(0xFFF06292);
+      showBadge = true;
+    } else if (charName == 'ecologist' && ecoCrisisType == 'ecology') {
+      badgeText = '-1 Level';
+      badgeColor = const Color(0xFFED9B3B);
+      showBadge = true;
+    } else if (charName == 'energy scientist' && ecoCrisisType == 'energy') {
+      badgeText = '-1 Level';
+      badgeColor = const Color(0xFF6C63FF);
+      showBadge = true;
+    } else if (charName == 'environmental activist') {
+      badgeText = '+1 Step';
+      badgeColor = const Color(0xFF38A3A5);
+      showBadge = true;
+    } else if (charName == 'policymaker') {
+      badgeText = '+1 Point\n(MP)';
+      badgeColor = const Color(0xFFB07D54);
+      showBadge = true;
+    }
+
+    if (!showBadge) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: badgeColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        badgeText,
+        textAlign: TextAlign.center,
+        style: GoogleFonts.montserrat(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 9,
+          height: 1.2,
+        ),
+      ),
+    );
   }
 
   void _promptCard6Reroll() {
@@ -1891,6 +2003,13 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                         ],
                       ),
                     ),
+                  ),
+                // Character Passive Skill Badge
+                if (selectedCharacter != null)
+                  Positioned(
+                    top: 132,
+                    right: 4,
+                    child: _buildCharacterPassiveBadge(),
                   ),
                 if (_showResultFeedback)
                   Container(
