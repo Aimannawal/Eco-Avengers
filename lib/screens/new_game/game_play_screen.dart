@@ -753,35 +753,30 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       currentVariant,
     );
 
-    // Apply character passive skills FIRST - only reduce if type matches
+    // Calculate character passive reduction (don't modify gameRound state!)
+    int characterPassiveReduction = 0;
     String? characterName = selectedCharacter?.title.toLowerCase();
     if (characterName == 'climate engineer' && ecoCrisisType == 'climate') {
-      final reducedLevel = (currentLevel - 1).clamp(1, 5);
-      gameRound.currentEcoCrisisLevel = reducedLevel;
+      characterPassiveReduction = 1;
     } else if (characterName == 'ecologist' && ecoCrisisType == 'ecology') {
-      final reducedLevel = (currentLevel - 1).clamp(1, 5);
-      gameRound.currentEcoCrisisLevel = reducedLevel;
+      characterPassiveReduction = 1;
     } else if (characterName == 'energy scientist' && ecoCrisisType == 'energy') {
-      final reducedLevel = (currentLevel - 1).clamp(1, 5);
-      gameRound.currentEcoCrisisLevel = reducedLevel;
+      characterPassiveReduction = 1;
     }
 
-    // NOW calculate effectiveLevel from the potentially reduced level
-    // Apply Card 1 buff: treat level as lower (can stack)
-    final effectiveLevel = (gameRound.currentEcoCrisisLevel - gameRound.difficultyReduction).clamp(
+    // Calculate effectiveLevel with both card buff and character passive
+    final effectiveLevel = (currentLevel - gameRound.difficultyReduction - characterPassiveReduction).clamp(
       1,
       99,
     );
 
-    if (gameRound.difficultyReduction > 0) {
-      setState(() => gameRound.difficultyReduction = 0);
-    }
+    // Don't reset card buffs here - they should persist across rerolls!
+    // Buffs will be reset when round ends (WIN/LOSE)
 
     final resultLevel = int.tryParse(result) ?? 0;
 
-    // Card 7 buff: any number wins
+    // Card 7 buff: any number wins (don't reset yet!)
     final bool anyWins = gameRound.anyNumberWins;
-    if (anyWins) setState(() => gameRound.anyNumberWins = false);
 
     // Debug output
     print('=== SPIN RESULT ===');
@@ -801,6 +796,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         _crisisTokenPosition = (_crisisTokenPosition + 1).clamp(0, 13);
         gameRound.failCount++;
         _showResultFeedback = true;
+        // Reset card buffs when round ends
+        gameRound.difficultyReduction = 0;
+        gameRound.anyNumberWins = false;
         gameRound.randomizeEcoCrisisLevel();
       });
 
@@ -853,6 +851,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           );
           gameRound.successCount++;
           _showResultFeedback = true;
+          // Reset card buffs when round ends
+          gameRound.difficultyReduction = 0;
+          gameRound.anyNumberWins = false;
           // User asked for this logic
           gameRound.randomizeEcoCrisisLevel();
         });
@@ -948,6 +949,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           _crisisTokenPosition = (_crisisTokenPosition + 1).clamp(0, 13);
           gameRound.failCount++;
           _showResultFeedback = true;
+          // Reset card buffs when round ends
+          gameRound.difficultyReduction = 0;
+          gameRound.anyNumberWins = false;
           gameRound.randomizeEcoCrisisLevel();
         });
 
