@@ -2,27 +2,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 
-// Action Card Model
-class ActionCard {
-  final String id;
-  final String title;
-  final String description;
-  final String? iconAssetPath;
-  final Color color;
-  final List<TokenEffect> effects; // e.g., Energy -1, Peace +2
-  final bool isSpecial;
-
-  ActionCard({
-    required this.id,
-    required this.title,
-    required this.description,
-    this.iconAssetPath,
-    required this.color,
-    required this.effects,
-    this.isSpecial = false,
-  });
-}
-
 // Token Effect
 class TokenEffect {
   final String tokenType; // 'energy', 'peace', 'crisis'
@@ -82,12 +61,18 @@ class GameRound {
   int peace = 0;
   int crisisTokens = 0;
   
-  List<ActionCard> handCards = [];
-  List<ActionCard> usedCards = [];
+  List<String> handCards = [];
+  List<String> usedCards = [];
+  
+  // Buffs
+  int difficultyReduction = 0; // Card 1 (can stack)
+  bool anyNumberWins = false; // Card 7
   List<GlobalIssue> activeIssues = [];
   
   int successCount = 0;
   int failCount = 0;
+
+  int get currentRound => successCount + failCount + 1;
 
   // Badge unlock state: maps badgeType → highest level unlocked (0=none, 1/2/3=level)
   // Badge types: 'energy', 'ecology', 'climate'
@@ -154,6 +139,11 @@ class GameRound {
   }
 
   void updateEcoCrisisLevel(int newLevel) {
+    currentEcoCrisisLevel = newLevel.clamp(1, 5);
+    _randomizeVariant();
+  }
+
+  void randomizeEcoCrisisLevel() {
     // Randomize level between 3, 4, and 5 so the cards are completely unpredictable
     currentEcoCrisisLevel = 3 + math.Random().nextInt(3);
     _randomizeVariant();
@@ -180,18 +170,13 @@ class GameRound {
     peace = 5;
   }
 
-  void addActionCard(ActionCard card) {
-    handCards.add(card);
+  void addActionCard(String cardPath) {
+    handCards.add(cardPath);
   }
 
-  void useCard(ActionCard card) {
-    handCards.removeWhere((c) => c.id == card.id);
-    usedCards.add(card);
-    
-    // Apply token effects
-    for (final effect in card.effects) {
-      applyEffect(effect);
-    }
+  void useCard(String cardPath) {
+    handCards.remove(cardPath);
+    usedCards.add(cardPath);
   }
 
   void applyEffect(TokenEffect effect) {

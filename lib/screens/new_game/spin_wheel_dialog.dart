@@ -67,11 +67,11 @@ class _SpinWheelDialogState extends State<SpinWheelDialog>
 
     switch (difficulty.toLowerCase()) {
       case 'easy':
-        print('Using EASY segments: [3,4,fail,4,3,fail]');
-        return ['3', '4', 'fail', '4', '3', 'fail'];
+        print('Using EASY segments: [1,2,fail,4,3,fail]');
+        return ['1', '2', 'fail', '4', '3', 'fail'];
       case 'hard':
-        print('Using HARD segments: [1,2,fail,1,2,fail]');
-        return ['1', '2', 'fail', '1', '2', 'fail'];
+        print('Using HARD segments: [1,2,fail,3,4,fail]');
+        return ['1', '2', 'fail', '3', '4', 'fail'];
       case 'normal':
       default:
         print('Using NORMAL segments: [1,2,fail,3,4,fail]');
