@@ -7,7 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/game_models.dart';
 import '../../models/room_model.dart';
+import '../../services/auth_service.dart';
 import '../../services/game_state_service.dart';
+import '../../services/leaderboard_service.dart';
 import '../../services/supabase_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/background_decoration.dart';
@@ -15,6 +17,7 @@ import 'character_selection_page.dart';
 import 'character_sheet_dialog.dart';
 import 'interactive_map_dialog.dart';
 import 'spin_wheel_dialog.dart';
+import 'win_profile_dialog.dart';
 
 class GamePlayScreen extends StatefulWidget {
   final String selectedCharacterId;
@@ -87,6 +90,24 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   String _myPlayerId = '';
   bool _isMyTurn = false;
   RealtimeChannel? _gameStateChannel;
+  int _policymakerBuff = 0; // +1 dice buff from adjacent Policymaker
+  // Region selection tracking for multiplayer initial map selection
+  bool _hasPickedInitialRegion = false;
+  bool _isInitialMapDialogOpen = false;
+  /// Guard flag: prevents showing game-over dialog more than once
+  bool _gameOverShown = false;
+
+  /// Real-time regions notifier for map dialog (updates when _mpGameState changes)
+  late final ValueNotifier<Map<String, String>> _regionsNotifier;
+
+  /// Region adjacency map for Policymaker buff
+  static const Map<String, List<String>> _regionAdjacency = {
+    'North America': ['Europe', 'Central & South America'],
+    'Central & South America': ['North America', 'Africa'],
+    'Europe': ['North America', 'Africa', 'Asia'],
+    'Africa': ['Central & South America', 'Europe', 'Asia'],
+    'Asia': ['Europe', 'Africa'],
+  };
 
   String _boardCharacterAssetPath(String characterName) {
     return 'assets/vector/$characterName Profile.png';
@@ -171,6 +192,11 @@ class _GamePlayScreenState extends State<GamePlayScreen>
 
     // Multiplayer init
     _isMultiplayer = widget.multiplayerRoomId != null;
+    _regionsNotifier = ValueNotifier<Map<String, String>>(
+      _isMultiplayer && _mpGameState != null
+          ? _mpGameState!.getAllPlayerRegions()
+          : {},
+    );
     if (_isMultiplayer) {
       _mpGameState = widget.multiplayerGameState;
       _mpPlayers = widget.multiplayerPlayers ?? [];
@@ -186,24 +212,183 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   Future<void> _initMultiplayer() async {
     _myPlayerId = await SupabaseService.instance.getOrCreatePlayerId();
     _updateTurnState();
+
+    // Load MY region from action_log (per-player, not shared state)
+    if (_mpGameState != null) {
+      final myRegion = _mpGameState!.getPlayerRegion(_myPlayerId);
+      if (myRegion != null) {
+        gameRound.setRegion(myRegion);
+      }
+    }
+
     _gameStateChannel = GameStateService.instance.streamGameState(
       roomId: widget.multiplayerRoomId!,
       onUpdate: _onGameStateUpdated,
     );
+    
+    // Sync initial hand cards to multiplayer state
+    GameStateService.instance.syncPlayerHandCards(
+      roomId: widget.multiplayerRoomId!,
+      playerId: _myPlayerId,
+      handCards: gameRound.handCards,
+    ).catchError((_) {
+      // Silently fail if sync doesn't work
+    });
+    
+    // Show map for initial region selection in multiplayer
+    // Only show if not all players have already selected regions
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_isMultiplayer && _mpGameState != null) {
+        final regions = _mpGameState!.getAllPlayerRegions();
+        final allPicked = regions.length >= _mpPlayers.length;
+        if (!allPicked) {
+          _showMapPopup(forceSelect: true);
+        } else {
+          _hasPickedInitialRegion = true;
+        }
+      } else {
+        _showMapPopup(forceSelect: true);
+      }
+    });
   }
 
   void _onGameStateUpdated(MultiplayerGameState state) {
     if (!mounted) return;
     setState(() {
       _mpGameState = state;
-      // Sync local gameRound tokens with multiplayer state
+      // Sync SHARED game state only (energy, peace, token positions, round info)
       gameRound.energy = state.energy;
       gameRound.peace = state.peace;
       gameRound.crisisTokens = state.crisisTokens;
-      gameRound.currentEcoCrisisLevel = state.ecoCrisisLevel;
-      gameRound.selectedRegion = state.selectedRegion;
+      _sustainableTokenPosition = state.sustainableTokenPosition;
+      _crisisTokenPosition = state.crisisTokenPosition;
+      // DO NOT overwrite gameRound.selectedRegion or gameRound.currentEcoCrisisLevel
+      // These are PER-PLAYER values stored in action_log, not shared state.
+      // Overwriting from shared state causes wrong eco crisis card images.
     });
     _updateTurnState();
+    _checkPolicymakerBuff();
+
+    // Update regions notifier for real-time map updates
+    if (_isMultiplayer && _mpGameState != null) {
+      _regionsNotifier.value = _mpGameState!.getAllPlayerRegions();
+    }
+
+    // Check for game-over conditions triggered by another player's real-time update.
+    // When the active player triggers WIN/LOSE locally, _gameOverShown prevents duplicate.
+    if (_isMultiplayer && !_gameOverShown) {
+      if (_sustainableTokenPosition >= 13) {
+        // Another player won the game — show win dialog for all players
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted && !_gameOverShown) _showGameOverDialog(playerWon: true);
+        });
+      } else if (_crisisTokenPosition >= 13) {
+        // Another player lost the game — show lose dialog for all players
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted && !_gameOverShown) _showGameOverDialog(playerWon: false);
+        });
+      }
+    }
+
+    // Auto-dismiss initial map dialog when all players have picked regions
+    if (_isMultiplayer && _isInitialMapDialogOpen && _mpGameState != null) {
+      final regions = _mpGameState!.getAllPlayerRegions();
+      final allPicked = regions.length >= _mpPlayers.length;
+      if (allPicked) {
+        _hasPickedInitialRegion = true;
+        // Small delay so the waiting overlay is visible briefly
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted && _isInitialMapDialogOpen) {
+            Navigator.of(context).pop();
+          }
+        });
+      }
+    }
+  }
+
+  /// Check if any teammate with Policymaker character is in an adjacent region
+  void _checkPolicymakerBuff() {
+    if (!_isMultiplayer || _mpGameState == null) {
+      _policymakerBuff = 0;
+      return;
+    }
+    final myRegion = _mpGameState!.getPlayerRegion(_myPlayerId);
+    if (myRegion == null) {
+      _policymakerBuff = 0;
+      return;
+    }
+    final adjacentRegions = _regionAdjacency[myRegion] ?? [];
+    final allRegions = _mpGameState!.getAllPlayerRegions();
+    int buff = 0;
+    RoomPlayer? policymakerPlayer;
+    
+    for (final player in _mpPlayers) {
+      if (player.playerId == _myPlayerId) continue;
+      if (player.characterName?.toLowerCase() == 'policymaker') {
+        final theirRegion = allRegions[player.playerId];
+        if (theirRegion != null && adjacentRegions.contains(theirRegion)) {
+          buff = 1;
+          policymakerPlayer = player;
+          break;
+        }
+      }
+    }
+    
+    if (buff != _policymakerBuff) {
+      setState(() => _policymakerBuff = buff);
+      // Buff applies silently - no notification popup
+    }
+  }
+
+  /// Sync region selection to Supabase action_log
+  Future<void> _syncRegionToActionLog(String region) async {
+    if (!_isMultiplayer) return;
+    await GameStateService.instance.updateGameState(
+      widget.multiplayerRoomId!,
+      selectedRegion: region,
+      appendActionLog: {
+        'type': 'region_select',
+        'player_id': _myPlayerId,
+        'region': region,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  /// Validate region selection - re-reads latest state to prevent race conditions.
+  /// Returns true if the region is still available.
+  Future<bool> _validateRegion(String region) async {
+    if (!_isMultiplayer) return true;
+    try {
+      final freshState = await GameStateService.instance.getGameState(
+        widget.multiplayerRoomId!,
+      );
+      if (freshState == null) return true;
+      final regions = freshState.getAllPlayerRegions();
+      // Check if another player already took this region
+      for (final entry in regions.entries) {
+        if (entry.key != _myPlayerId && entry.value == region) {
+          return false; // Conflict!
+        }
+      }
+      return true;
+    } catch (_) {
+      return true; // On error, allow selection
+    }
+  }
+
+  /// Sync hand cards to Supabase action_log
+  Future<void> _syncHandCardsToActionLog() async {
+    if (!_isMultiplayer) return;
+    await GameStateService.instance.updateGameState(
+      widget.multiplayerRoomId!,
+      appendActionLog: {
+        'type': 'hand_cards_sync',
+        'player_id': _myPlayerId,
+        'cards': gameRound.handCards.toList(),
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
   }
 
   void _updateTurnState() {
@@ -227,6 +412,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   }
 
   /// Sync perubahan token ke Supabase (hanya saat multiplayer & giliran saya)
+  /// NOTE: Only syncs SHARED state (tokens, energy, peace).
+  /// Per-player state (region, ecoCrisisLevel) is stored in action_log separately.
   Future<void> _syncToSupabase() async {
     if (!_isMultiplayer || !_isMyTurn) return;
     await GameStateService.instance.updateGameState(
@@ -234,13 +421,52 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       energy: gameRound.energy,
       peace: gameRound.peace,
       crisisTokens: gameRound.crisisTokens,
-      ecoCrisisLevel: gameRound.currentEcoCrisisLevel,
-      selectedRegion: gameRound.selectedRegion,
+      sustainableTokenPosition: _sustainableTokenPosition,
+      crisisTokenPosition: _crisisTokenPosition,
     );
+  }
+
+  Future<void> _endTurn() async {
+    if (!_isMultiplayer || !_isMyTurn) return;
+
+    // Sort players by joinedAt to get a CONSISTENT, deterministic turn order
+    final sortedPlayers = List<RoomPlayer>.from(_mpPlayers)
+      ..sort((a, b) => a.joinedAt.compareTo(b.joinedAt));
+    final playerOrder = sortedPlayers.map((p) => p.playerId).toList();
+
+    // Optimistically update UI
+    setState(() {
+      _isMyTurn = false;
+    });
+
+    try {
+      await GameStateService.instance.nextTurn(
+        roomId: widget.multiplayerRoomId!,
+        playerOrder: playerOrder,
+        currentPlayerId: _myPlayerId,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isMyTurn = true; // revert
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal mengakhiri giliran: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   List<String> _pickRandomActionCards() {
     final cards = List<String>.from(_actionCardAssets);
+    
+    // In multiplayer, exclude Card #3 (Region Change) since regions are pre-assigned
+    if (widget.multiplayerRoomId != null) {
+      cards.removeWhere((card) => card == 'assets/action_card/3.png');
+    }
+    
     cards.shuffle(math.Random());
     return cards.take(3).toList();
   }
@@ -249,6 +475,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   void dispose() {
     _gameStateChannel?.unsubscribe();
     _fadeController.dispose();
+    _regionsNotifier.dispose();
     super.dispose();
   }
 
@@ -345,6 +572,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
 
   /// Whether a card can be used right now given the current game state.
   bool _isCardUsable(int number) {
+    if (_isMultiplayer && !_isMyTurn) return false;
     switch (number) {
       case 1:
         return (gameRound.currentEcoCrisisLevel -
@@ -353,7 +581,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       case 2:
         return _crisisTokenPosition > 0;
       case 3:
-        return true; // always usable when held
+        return !_isMultiplayer; // Plane card disabled in multiplayer
       case 4:
         return _crisisTokenPosition > 0;
       case 5:
@@ -423,7 +651,14 @@ class _GamePlayScreenState extends State<GamePlayScreen>
 
   void _useCard(String path) {
     final number = _cardNumber(path);
-    if (!_isCardUsable(number)) return;
+    if (!_isCardUsable(number)) {
+      if (_isMultiplayer && !_isMyTurn) {
+        _showCardSnack('Belum giliranmu! Tunggu pemain lain selesai.');
+      } else {
+        _showCardSnack('Kartu ini belum bisa digunakan sekarang.');
+      }
+      return;
+    }
 
     // Show confirmation dialog
     showDialog<bool>(
@@ -446,79 +681,81 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                 ),
               ],
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.asset(path, width: 220, fit: BoxFit.contain),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  _cardDescription(number),
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.montserrat(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.asset(path, width: 220, fit: BoxFit.contain),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(
-                            color: Color(0xFF111111),
-                            width: 2,
+                  const SizedBox(height: 14),
+                  Text(
+                    _cardDescription(number),
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.montserrat(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(
+                              color: Color(0xFF111111),
+                              width: 2,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(40),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(40),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        child: Text(
-                          'Cancel',
-                          style: GoogleFonts.montserrat(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black,
+                          child: Text(
+                            'Cancel',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFA5C18A),
-                          foregroundColor: Colors.black,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          side: const BorderSide(
-                            color: Color(0xFF111111),
-                            width: 2,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFA5C18A),
+                            foregroundColor: Colors.black,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            side: const BorderSide(
+                              color: Color(0xFF111111),
+                              width: 2,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(40),
+                            ),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(40),
-                          ),
-                        ),
-                        child: Text(
-                          'Use Card',
-                          style: GoogleFonts.montserrat(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black,
+                          child: Text(
+                            'Use Card',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -532,6 +769,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   void _applyCardEffect(String path, int number) {
     gameRound.useCard(path);
     setState(() {});
+    _syncHandCardsToActionLog();
 
     switch (number) {
       case 1:
@@ -545,6 +783,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         setState(() {
           _crisisTokenPosition = (_crisisTokenPosition - 1).clamp(0, 13);
         });
+        _syncToSupabase();
         _showCardSnack('Planet Crisis retreated 1 space 🔙');
         break;
 
@@ -610,9 +849,26 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       if (onDone != null) onDone();
       return;
     }
-    final picked =
-        _actionCardAssets[math.Random().nextInt(_actionCardAssets.length)];
+    
+    // Get available cards, filtering Card #3 in multiplayer
+    final availableCards = List<String>.from(_actionCardAssets);
+    if (widget.multiplayerRoomId != null) {
+      availableCards.removeWhere((card) => card == 'assets/action_card/3.png');
+    }
+    
+    final picked = availableCards[math.Random().nextInt(availableCards.length)];
     setState(() => gameRound.handCards.add(picked));
+    
+    // Sync cards to multiplayer state if in multiplayer
+    if (_isMultiplayer && widget.multiplayerRoomId != null) {
+      GameStateService.instance.syncPlayerHandCards(
+        roomId: widget.multiplayerRoomId!,
+        playerId: _myPlayerId,
+        handCards: gameRound.handCards,
+      ).catchError((_) {
+        // Silently fail if sync doesn't work - cards still exist locally
+      });
+    }
 
     showDialog<void>(
       context: context,
@@ -681,10 +937,16 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           characterName: widget.selectedCharacterName,
           characterAccentColor: widget.characterAccentColor,
           initialRegion: gameRound.selectedRegion,
+          existingPlayerRegions: _isMultiplayer ? _mpGameState?.getAllPlayerRegions() : null,
+          players: _isMultiplayer ? _mpPlayers : null,
+          myPlayerId: _isMultiplayer ? _myPlayerId : null,
+          onValidateRegion: _isMultiplayer ? _validateRegion : null,
+          regionsNotifier: _isMultiplayer ? _regionsNotifier : null,
           onRegionSelected: (selectedRegion) {
             setState(() {
               gameRound.setRegion(selectedRegion);
             });
+            _syncRegionToActionLog(selectedRegion);
           },
         );
       },
@@ -706,6 +968,10 @@ class _GamePlayScreenState extends State<GamePlayScreen>
             characterName: widget.selectedCharacterName,
             characterAccentColor: widget.characterAccentColor,
             initialRegion: gameRound.selectedRegion,
+            existingPlayerRegions: _isMultiplayer ? _mpGameState?.getAllPlayerRegions() : null,
+            players: _isMultiplayer ? _mpPlayers : null,
+            myPlayerId: _isMultiplayer ? _myPlayerId : null,
+            regionsNotifier: _isMultiplayer ? _regionsNotifier : null,
             onRegionSelected: (selectedRegion) {
               // Cannot change region without Card 3
               ScaffoldMessenger.of(context).showSnackBar(
@@ -716,7 +982,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Need Action Card #3 to change region!',
+                          'Need Region Change card to change region!',
                           style: GoogleFonts.montserrat(
                             fontWeight: FontWeight.w700,
                             color: Colors.white,
@@ -765,7 +1031,10 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     }
 
     // Calculate effectiveLevel with both card buff and character passive
-    final effectiveLevel = (currentLevel - gameRound.difficultyReduction - characterPassiveReduction).clamp(
+    // Apply Policymaker buff (+1 to spin result effectively = -1 to effective level)
+    final policyBuff = _policymakerBuff;
+
+    final effectiveLevel = (currentLevel - gameRound.difficultyReduction - characterPassiveReduction - policyBuff).clamp(
       1,
       99,
     );
@@ -801,6 +1070,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         gameRound.anyNumberWins = false;
         gameRound.randomizeEcoCrisisLevel();
       });
+      _syncToSupabase();
 
       // Force card refresh
       Future.delayed(const Duration(milliseconds: 50), () {
@@ -867,6 +1137,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
             );
           });
         }
+
+        // Sync AFTER all token movements (including character passives)
+        _syncToSupabase();
 
         // Show badge unlock notification
         if (badgeUnlocked && mounted) {
@@ -947,6 +1220,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         print('Result: FAILED');
         setState(() {
           _crisisTokenPosition = (_crisisTokenPosition + 1).clamp(0, 13);
+          gameRound.crisisTokens = _crisisTokenPosition; // Sync token
           gameRound.failCount++;
           _showResultFeedback = true;
           // Reset card buffs when round ends
@@ -954,6 +1228,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           gameRound.anyNumberWins = false;
           gameRound.randomizeEcoCrisisLevel();
         });
+        _syncToSupabase();
 
         // Force card refresh
         Future.delayed(const Duration(milliseconds: 50), () {
@@ -982,6 +1257,15 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       }
     }
     print('==================');
+    
+    // Auto-switch turn in multiplayer after action completes
+    if (_isMultiplayer && _isMyTurn) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          _endTurn();
+        }
+      });
+    }
   }
 
   /// Helper method to get character name from selectedCharacter
@@ -1028,8 +1312,14 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       badgeColor = const Color(0xFF38A3A5);
       showBadge = true;
     } else if (charName == 'policymaker') {
-      badgeText = '+1 Point\n(MP)';
+      badgeText = 'Buff\nAdjacent';
       badgeColor = const Color(0xFFB07D54);
+      showBadge = _isMultiplayer; // Only show in multiplayer
+    }
+
+    // Show received Policymaker buff badge for non-Policymaker characters
+    if (_policymakerBuff > 0 && charName != 'policymaker') {
+      badgeText = badgeText.isNotEmpty ? '$badgeText\n🏛️+1' : '🏛️+1';
       showBadge = true;
     }
 
@@ -1072,99 +1362,111 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       builder: (ctx) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          child: Container(
-            width: 280,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: const Color(0xFFEB5757), width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final maxH = constraints.maxHeight;
+              final imgSize = (maxH * 0.25).clamp(80.0, 140.0);
+              return Container(
+                constraints: BoxConstraints(
+                  maxWidth: 320,
+                  maxHeight: maxH * 0.85,
                 ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.asset(
-                    card6Path,
-                    width: 130,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'You got FAIL! Use Action Card #6 to re-spin?',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.montserrat(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(
-                            color: Color(0xFF111111),
-                            width: 2,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(40),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                        ),
-                        child: Text(
-                          'No, Fail',
-                          style: GoogleFonts.montserrat(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFA5C18A),
-                          foregroundColor: Colors.black,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          side: const BorderSide(
-                            color: Color(0xFF111111),
-                            width: 2,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(40),
-                          ),
-                        ),
-                        child: Text(
-                          'Reroll! 🎲',
-                          style: GoogleFonts.montserrat(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFFEB5757), width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
                     ),
                   ],
                 ),
-              ],
-            ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.asset(
+                          card6Path,
+                          height: imgSize,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'You got FAIL!\nUse Re-Spin card?',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.montserrat(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                  color: Color(0xFF111111),
+                                  width: 2,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(40),
+                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                              ),
+                              child: Text(
+                                'No, Fail',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFA5C18A),
+                                foregroundColor: Colors.black,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                side: const BorderSide(
+                                  color: Color(0xFF111111),
+                                  width: 2,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(40),
+                                ),
+                              ),
+                              child: Text(
+                                'Reroll! 🎲',
+                                style: GoogleFonts.montserrat(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         );
       },
@@ -1179,10 +1481,12 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         final lvl = gameRound.currentEcoCrisisLevel;
         setState(() {
           _crisisTokenPosition = (_crisisTokenPosition + 1).clamp(0, 13);
+          gameRound.crisisTokens = _crisisTokenPosition; // Sync token
           gameRound.failCount++;
           _showResultFeedback = true;
           gameRound.randomizeEcoCrisisLevel();
         });
+        _syncToSupabase();
         Future.delayed(const Duration(milliseconds: 100), () {
           if (_crisisTokenPosition >= 13) _showGameOverDialog(playerWon: false);
         });
@@ -1195,11 +1499,94 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         Future.delayed(const Duration(milliseconds: 1500), () {
           if (mounted) setState(() => _showResultFeedback = false);
         });
+
+        // End turn in multiplayer after Card 6 "No, Fail" decision
+        if (_isMultiplayer && _isMyTurn) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) _endTurn();
+          });
+        }
       }
     });
   }
 
+  /// Save LOSE result to game_results table (mirrors WinProfileDialog's save logic)
+  Future<void> _saveLoseResult() async {
+    try {
+      final playerId = await SupabaseService.instance.getOrCreatePlayerId();
+      final profile = await LeaderboardService.instance.getPlayerProfile(playerId);
+      String displayName = profile?.displayName ?? 'Player';
+      if (profile == null) {
+        final username = await AuthService.instance.getUsername();
+        if (username != null) displayName = username;
+      }
+
+      final badgeMap = <String, int>{
+        'climate': gameRound.getBadgeLevel('climate'),
+        'ecology': gameRound.getBadgeLevel('ecology'),
+        'energy': gameRound.getBadgeLevel('energy'),
+      };
+
+      final score = (gameRound.successCount * 100 +
+              badgeMap.values.fold(0, (a, b) => a + b) * 50 -
+              gameRound.failCount * 10)
+          .clamp(0, 999999);
+
+      await LeaderboardService.instance.submitResult(
+        playerId: playerId,
+        displayName: displayName,
+        country: profile?.country,
+        bio: profile?.bio,
+        character: widget.selectedCharacterName,
+        region: gameRound.selectedRegion,
+        difficulty: widget.selectedDifficulty,
+        mode: _isMultiplayer ? 'multiplayer' : 'singleplayer',
+        result: 'lose',
+        winCount: gameRound.successCount,
+        loseCount: gameRound.failCount,
+        score: score,
+        badges: badgeMap,
+      );
+    } catch (_) {
+      // Silently fail — don't block the game over dialog
+    }
+  }
+
   void _showGameOverDialog({required bool playerWon}) {
+    // Guard: prevent showing game-over dialog more than once
+    if (_gameOverShown) return;
+    _gameOverShown = true;
+
+    if (playerWon) {
+      // WIN — show profile input dialog
+      final badgeMap = <String, int>{
+        'climate': gameRound.getBadgeLevel('climate'),
+        'ecology': gameRound.getBadgeLevel('ecology'),
+        'energy': gameRound.getBadgeLevel('energy'),
+      };
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => WinProfileDialog(
+          winCount: gameRound.successCount,
+          loseCount: gameRound.failCount,
+          character: widget.selectedCharacterName,
+          region: gameRound.selectedRegion,
+          difficulty: widget.selectedDifficulty,
+          mode: _isMultiplayer ? 'multiplayer' : 'singleplayer',
+          badges: badgeMap,
+          onDone: () {
+            Navigator.of(ctx).pop();
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          },
+        ),
+      );
+      return;
+    }
+
+    // LOSE — save result then show dialog
+    _saveLoseResult();
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -1213,9 +1600,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
               color: AppColors.pureWhite,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: playerWon
-                    ? const Color(0xFFA5C18A)
-                    : const Color(0xFFEB5757),
+                color: const Color(0xFFEB5757),
                 width: 3,
               ),
               boxShadow: [
@@ -1240,21 +1625,17 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  playerWon ? 'YOU WIN!' : 'YOU LOSE!',
+                  'YOU LOSE!',
                   style: GoogleFonts.montserrat(
                     fontSize: 40,
                     fontWeight: FontWeight.w700,
-                    color: playerWon
-                        ? const Color(0xFFA5C18A)
-                        : const Color(0xFFEB5757),
+                    color: const Color(0xFFEB5757),
                     letterSpacing: 2,
                   ),
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  playerWon
-                      ? 'Sustainability reached the goal! 🌱'
-                      : 'Planetary Crisis reached the goal! 🌍',
+                  'Planetary Crisis reached the goal! 🌍',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.montserrat(
                     fontSize: 14,
@@ -1267,13 +1648,10 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      // Navigate back to the very first route (HomeScreen)
                       Navigator.of(context).popUntil((route) => route.isFirst);
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: playerWon
-                          ? const Color(0xFFA5C18A)
-                          : const Color(0xFFEB5757),
+                      backgroundColor: const Color(0xFFEB5757),
                       foregroundColor: Colors.black,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
@@ -1307,7 +1685,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     required String title,
     required String message,
     required bool isSuccess,
-    VoidCallback? onClosed, // called when user taps Continue
+    VoidCallback? onClosed,
   }) {
     showDialog<void>(
       context: context,
@@ -1315,8 +1693,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       builder: (context) {
         return Dialog(
           backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
           child: Container(
-            width: 280,
+            constraints: const BoxConstraints(maxWidth: 300),
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: AppColors.pureWhite,
@@ -1341,24 +1720,24 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                 Text(
                   title,
                   style: GoogleFonts.montserrat(
-                    fontSize: 28,
+                    fontSize: 26,
                     fontWeight: FontWeight.w700,
                     color: isSuccess
                         ? const Color(0xFFA5C18A)
                         : const Color(0xFFEB5757),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Text(
                   message,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.montserrat(
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: Colors.black87,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -1403,24 +1782,36 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     _showImagePopup(_getEcoCrisisCardPath());
   }
 
-  void _showMapPopup() {
+  void _showMapPopup({bool forceSelect = false}) {
+    _isInitialMapDialogOpen = forceSelect;
     showDialog<void>(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: !forceSelect,
       barrierColor: Colors.black.withOpacity(0.65),
       builder: (dialogContext) {
         return InteractiveMapDialog(
           characterName: widget.selectedCharacterName,
           characterAccentColor: widget.characterAccentColor,
           initialRegion: gameRound.selectedRegion,
+          existingPlayerRegions: _isMultiplayer ? _mpGameState?.getAllPlayerRegions() : null,
+          players: _isMultiplayer ? _mpPlayers : null,
+          myPlayerId: _isMultiplayer ? _myPlayerId : null,
+          forceSelect: forceSelect,
+          totalPlayers: _isMultiplayer ? _mpPlayers.length : 0,
+          onValidateRegion: _isMultiplayer ? _validateRegion : null,
+          regionsNotifier: _isMultiplayer ? _regionsNotifier : null,
           onRegionSelected: (selectedRegion) {
             setState(() {
               gameRound.setRegion(selectedRegion);
+              if (forceSelect) _hasPickedInitialRegion = true;
             });
+            _syncRegionToActionLog(selectedRegion);
           },
         );
       },
-    );
+    ).then((_) {
+      _isInitialMapDialogOpen = false;
+    });
   }
 
   void _showImagePopup(String assetPath) {
@@ -1545,28 +1936,328 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                         alignment: Alignment.center,
                       ),
                       // 4. Game content overlay
-                      SafeArea(
-                        child: Row(
-                          children: [
-                            _buildPhotoDisplay(),
-                            Expanded(
+                      // 4. Game content overlay with responsive layout
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isMobile = constraints.maxWidth < 800;
+                          final isSmallPhone = constraints.maxWidth < 420;
+                          
+                          if (isMobile) {
+                            // Mobile: compact stacked layout
+                            final photoW = isSmallPhone ? 140.0 : 170.0;
+                            return SafeArea(
                               child: Column(
                                 children: [
+                                  // Top: token track (full width)
                                   _buildTokenTrack(),
-                                  const Expanded(child: SizedBox.expand()),
+                                  if (_isMultiplayer) _buildMultiplayerBanner(),
+                                  // Middle: photo + character side by side
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          SizedBox(
+                                            width: photoW,
+                                            child: _buildPhotoDisplayCompact(),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: _buildCharacterDisplayCompact(),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  // Bottom: action cards (full width)
                                   _buildActionCardsStrip(),
                                 ],
                               ),
+                            );
+                          }
+                          
+                          // Desktop/tablet: original layout with Expanded
+                          return SafeArea(
+                            child: Row(
+                              children: [
+                                _buildPhotoDisplay(),
+                                Expanded(
+                                  child: Column(
+                                    children: [
+                                      _buildTokenTrack(),
+                                      if (_isMultiplayer) _buildMultiplayerBanner(),
+                                      const Expanded(child: SizedBox.expand()),
+                                      _buildActionCardsStrip(),
+                                    ],
+                                  ),
+                                ),
+                                _buildCharacterDisplay(),
+                              ],
                             ),
-                            _buildCharacterDisplay(),
-                          ],
-                        ),
+                          );
+                        },
                       ),
                     ],
                   ),
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+  Widget _buildMultiplayerBanner() {
+    final currentPlayerName = _mpPlayers
+        .where((p) => p.playerId == _mpGameState?.currentPlayerId)
+        .map((p) => p.playerName)
+        .firstOrNull ?? 'Unknown';
+    final allRegions = _mpGameState?.getAllPlayerRegions() ?? {};
+    
+    // Find current player info
+    final currentPlayer = _mpPlayers.firstWhere(
+      (p) => p.playerId == _mpGameState?.currentPlayerId,
+      orElse: () => _mpPlayers.first,
+    );
+    final myPlayer = _mpPlayers.firstWhere(
+      (p) => p.playerId == _myPlayerId,
+      orElse: () => _mpPlayers.first,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.95),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _isMyTurn
+                ? const Color(0xFF4CAF50).withOpacity(0.5)
+                : const Color(0xFFF44336).withOpacity(0.3),
+            width: 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Current turn player display (prominent)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _isMyTurn
+                    ? const Color(0xFF4CAF50).withOpacity(0.15)
+                    : const Color(0xFFF44336).withOpacity(0.08),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(10),
+                  topRight: Radius.circular(10),
+                ),
+              ),
+              child: Row(
+                children: [
+                  // Current turn player avatar (large)
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _isMyTurn 
+                            ? const Color(0xFF4CAF50) 
+                            : const Color(0xFFF44336),
+                        width: 2.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (_isMyTurn 
+                              ? const Color(0xFF4CAF50) 
+                              : const Color(0xFFF44336)).withOpacity(0.3),
+                          blurRadius: 6,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: CircleAvatar(
+                      radius: 22,
+                      backgroundColor: Colors.grey.shade300,
+                      backgroundImage: currentPlayer.characterAsset != null
+                          ? AssetImage(currentPlayer.characterAsset!)
+                          : null,
+                      child: currentPlayer.characterAsset == null
+                          ? const Icon(Icons.person, size: 24)
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Current turn info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              _isMyTurn ? Icons.play_circle_filled : Icons.hourglass_bottom,
+                              size: 14,
+                              color: _isMyTurn ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _isMyTurn ? 'YOUR TURN!' : 'WAITING...',
+                              style: GoogleFonts.montserrat(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                color: _isMyTurn ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _isMyTurn ? 'You (${myPlayer.playerName})' : currentPlayerName,
+                          style: GoogleFonts.montserrat(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (currentPlayer.characterName != null)
+                          Text(
+                            '${currentPlayer.characterName} • ${allRegions[currentPlayer.playerId] ?? '?'}',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 8,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black54,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                  // Policymaker buff indicator
+                  if (_policymakerBuff > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFB07D54),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFB07D54).withOpacity(0.3),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            '🏛️',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            '+1 BUFF',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 8,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            // Other players (teammates)
+            if (_mpPlayers.length > 1)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'TEAMMATES',
+                      style: GoogleFonts.montserrat(
+                        fontSize: 8,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.black45,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: _mpPlayers.where((p) => p.playerId != _mpGameState?.currentPlayerId).map((player) {
+                        final region = allRegions[player.playerId] ?? '?';
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.black.withOpacity(0.08),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircleAvatar(
+                                radius: 14,
+                                backgroundColor: Colors.grey.shade300,
+                                backgroundImage: player.characterAsset != null
+                                    ? AssetImage(player.characterAsset!)
+                                    : null,
+                                child: player.characterAsset == null
+                                    ? const Icon(Icons.person, size: 16)
+                                    : null,
+                              ),
+                              const SizedBox(width: 6),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    player.playerName,
+                                    style: GoogleFonts.montserrat(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  if (player.characterName != null)
+                                    Text(
+                                      '${player.characterName} • $region',
+                                      style: GoogleFonts.montserrat(
+                                        fontSize: 7,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -2194,8 +2885,11 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                 Padding(
                   padding: EdgeInsets.fromLTRB(8, 0, 8, buttonPadding),
                   child: GestureDetector(
-                    onTap: _showSpinWheel,
-                    child: Container(
+                    onTap: (_isMultiplayer && !_isMyTurn) ? null : _showSpinWheel,
+                    child: AnimatedOpacity(
+                      opacity: (_isMultiplayer && !_isMyTurn) ? 0.4 : 1.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Container(
                       width: double.infinity,
                       height: buttonHeight,
                       alignment: Alignment.center,
@@ -2222,6 +2916,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                         ),
                       ),
                     ),
+                  ),
                   ),
                 ),
                 Padding(
@@ -2260,6 +2955,246 @@ class _GamePlayScreenState extends State<GamePlayScreen>
               ],
             ),
           ),
+    );
+  }
+
+  /// Compact eco crisis card for mobile layout
+  Widget _buildPhotoDisplayCompact() {
+    final cardPath = _getEcoCrisisCardPath();
+
+    return GestureDetector(
+      onTap: _showPhotoPopup,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.15),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset(
+                cardPath,
+                fit: BoxFit.contain,
+                alignment: Alignment.center,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: AppColors.softGray.withOpacity(0.15),
+                    child: const Center(
+                      child: Icon(Icons.image_not_supported_outlined, color: Colors.black38, size: 32),
+                    ),
+                  );
+                },
+              ),
+              if (gameRound.difficultyReduction > 0)
+                Positioned(
+                  bottom: 4,
+                  left: 4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD32F2F),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.arrow_downward_rounded, color: Colors.white, size: 10),
+                        const SizedBox(width: 2),
+                        Text(
+                          '-${gameRound.difficultyReduction}',
+                          style: GoogleFonts.montserrat(
+                            color: Colors.white, fontWeight: FontWeight.w800, fontSize: 9,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (selectedCharacter != null)
+                Positioned(
+                  bottom: 4,
+                  right: 4,
+                  child: _buildCharacterPassiveBadge(),
+                ),
+              if (_showResultFeedback)
+                Container(
+                  color: Colors.black.withOpacity(0.6),
+                  child: Center(
+                    child: Text(
+                      'USED',
+                      style: GoogleFonts.montserrat(
+                        fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compact character panel for mobile layout
+  Widget _buildCharacterDisplayCompact() {
+    if (selectedCharacter == null) {
+      return Container(
+        margin: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: AppColors.pureWhite.withOpacity(0.95),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Center(
+          child: Icon(FeatherIcons.alertCircle, color: Colors.black26, size: 24),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: AppColors.pureWhite,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Title
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+            decoration: BoxDecoration(
+              color: AppColors.pureWhite,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(9), topRight: Radius.circular(9),
+              ),
+              border: Border.all(color: Colors.black.withOpacity(0.05)),
+            ),
+            child: Text(
+              selectedCharacter!.title,
+              style: GoogleFonts.montserrat(
+                color: AppColors.textPrimary, fontSize: 10, fontWeight: FontWeight.w700,
+                height: 1, letterSpacing: 0.2,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Character image
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset(
+                  _boardCharacterAssetPath(selectedCharacter!.title),
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: AppColors.softGray.withOpacity(0.12),
+                      child: const Icon(FeatherIcons.image, color: Colors.black38, size: 20),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+          // Stats + buttons
+          _buildGameStatsHeader(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 2, 4, 2),
+            child: GestureDetector(
+              onTap: () => _showCharacterSheet(selectedCharacter!),
+              child: Container(
+                width: double.infinity,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _buttonGreen,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: _buttonBorder, width: 2),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 0, offset: const Offset(0, 3)),
+                  ],
+                ),
+                child: Text(
+                  'View Sheet',
+                  style: GoogleFonts.montserrat(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w700, height: 1),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 2),
+            child: GestureDetector(
+              onTap: (_isMultiplayer && !_isMyTurn) ? null : _showSpinWheel,
+              child: AnimatedOpacity(
+                opacity: (_isMultiplayer && !_isMyTurn) ? 0.4 : 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: Container(
+                  width: double.infinity,
+                  height: 28,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _buttonGreen,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: _buttonBorder, width: 2),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 0, offset: const Offset(0, 3)),
+                    ],
+                  ),
+                  child: Text(
+                    'Solve Issue',
+                    style: GoogleFonts.montserrat(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w700, height: 1),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+            child: GestureDetector(
+              onTap: _handleMapButtonTap,
+              child: Container(
+                width: double.infinity,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _buttonGreen,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: _buttonBorder, width: 2),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 0, offset: const Offset(0, 3)),
+                  ],
+                ),
+                child: Text(
+                  'Check Map',
+                  style: GoogleFonts.montserrat(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w700, height: 1),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

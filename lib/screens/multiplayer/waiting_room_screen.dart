@@ -214,13 +214,14 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth >= 760;
+                  final isCompact = constraints.maxHeight < 500;
                   final boardWidth = isWide
                       ? math.min(constraints.maxWidth * 0.72, 640.0)
                       : constraints.maxWidth * 0.90;
 
                   return Center(
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      padding: EdgeInsets.symmetric(vertical: isCompact ? 10 : 24),
                       child: SizedBox(
                         width: boardWidth,
                         child: Stack(
@@ -240,7 +241,12 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                   ),
                                 ],
                               ),
-                              padding: const EdgeInsets.fromLTRB(24, 36, 24, 28),
+                              padding: EdgeInsets.fromLTRB(
+                                24,
+                                isCompact ? 20 : 36,
+                                24,
+                                isCompact ? 12 : 28,
+                              ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -248,7 +254,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                   Text(
                                     'WAITING ROOM',
                                     style: GoogleFonts.montserrat(
-                                      fontSize: isWide ? 26 : 20,
+                                      fontSize: isCompact ? 16 : (isWide ? 26 : 20),
                                       fontWeight: FontWeight.w900,
                                       color: Colors.white,
                                       letterSpacing: 2,
@@ -261,7 +267,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                       ],
                                     ),
                                   ),
-                                  const SizedBox(height: 8),
+                                  SizedBox(height: isCompact ? 6 : 8),
 
                                   // Room Code Card
                                   GestureDetector(
@@ -283,9 +289,9 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                       );
                                     },
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(
+                                      padding: EdgeInsets.symmetric(
                                         horizontal: 20,
-                                        vertical: 12,
+                                        vertical: isCompact ? 6 : 12,
                                       ),
                                       decoration: BoxDecoration(
                                         color: Colors.white.withOpacity(0.15),
@@ -318,7 +324,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                               Text(
                                                 _room.roomCode,
                                                 style: GoogleFonts.montserrat(
-                                                  fontSize: 32,
+                                                  fontSize: isCompact ? 22 : 32,
                                                   fontWeight: FontWeight.w900,
                                                   color: Colors.white,
                                                   letterSpacing: 8,
@@ -330,15 +336,15 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
+                                  SizedBox(height: isCompact ? 3 : 6),
                                   Text(
                                     'Tap kode untuk menyalin • Bagikan ke teman',
                                     style: GoogleFonts.montserrat(
-                                      fontSize: 11,
+                                      fontSize: isCompact ? 10 : 11,
                                       color: Colors.white54,
                                     ),
                                   ),
-                                  const SizedBox(height: 16),
+                                  SizedBox(height: isCompact ? 8 : 16),
 
                                   // Info badges
                                   Row(
@@ -355,7 +361,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 20),
+                                  SizedBox(height: isCompact ? 10 : 20),
 
                                   // Player list header
                                   Row(
@@ -371,7 +377,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 8),
+                                  SizedBox(height: isCompact ? 4 : 8),
 
                                   // Player list
                                   ...List.generate(
@@ -381,14 +387,18 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                         return _PlayerTile(
                                           player: _players[i],
                                           isMe: _players[i].playerId == _myPlayerId,
+                                          compact: isCompact,
                                         );
                                       } else {
-                                        return _EmptyPlayerSlot(index: i + 1);
+                                        return _EmptyPlayerSlot(
+                                          index: i + 1,
+                                          compact: isCompact,
+                                        );
                                       }
                                     },
                                   ),
 
-                                  const SizedBox(height: 24),
+                                  SizedBox(height: isCompact ? 12 : 24),
 
                                   // Start button (host only)
                                   if (_isHost) ...[
@@ -403,13 +413,14 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                       isLoading: _isStarting,
                                       onTap: _startGame,
                                       buttonColor: _buttonColor,
+                                      compact: isCompact,
                                     ),
-                                    const SizedBox(height: 10),
+                                    SizedBox(height: isCompact ? 4 : 10),
                                   ] else ...[
                                     Container(
-                                      padding: const EdgeInsets.symmetric(
+                                      padding: EdgeInsets.symmetric(
                                         horizontal: 20,
-                                        vertical: 12,
+                                        vertical: isCompact ? 8 : 12,
                                       ),
                                       decoration: BoxDecoration(
                                         color: Colors.white.withOpacity(0.10),
@@ -430,7 +441,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                           Text(
                                             'Menunggu host memulai...',
                                             style: GoogleFonts.montserrat(
-                                              fontSize: 14,
+                                              fontSize: isCompact ? 12 : 14,
                                               color: Colors.white70,
                                               fontWeight: FontWeight.w600,
                                             ),
@@ -438,7 +449,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                         ],
                                       ),
                                     ),
-                                    const SizedBox(height: 10),
+                                    SizedBox(height: isCompact ? 4 : 10),
                                   ],
 
                                   // Leave button
@@ -454,7 +465,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
                                       style: GoogleFonts.montserrat(
                                         color: Colors.red.shade300,
                                         fontWeight: FontWeight.w700,
-                                        fontSize: 13,
+                                        fontSize: isCompact ? 11 : 13,
                                       ),
                                     ),
                                   ),
@@ -519,14 +530,22 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen>
 class _PlayerTile extends StatelessWidget {
   final RoomPlayer player;
   final bool isMe;
+  final bool compact;
 
-  const _PlayerTile({required this.player, required this.isMe});
+  const _PlayerTile({
+    required this.player,
+    required this.isMe,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      margin: EdgeInsets.only(bottom: compact ? 5 : 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: compact ? 7 : 12,
+      ),
       decoration: BoxDecoration(
         color: isMe
             ? const Color(0xFFA5C18A).withOpacity(0.25)
@@ -543,8 +562,8 @@ class _PlayerTile extends StatelessWidget {
         children: [
           // Avatar circle
           Container(
-            width: 36,
-            height: 36,
+            width: compact ? 28 : 36,
+            height: compact ? 28 : 36,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isMe
@@ -554,20 +573,28 @@ class _PlayerTile extends StatelessWidget {
                 color: Colors.white.withOpacity(0.3),
                 width: 1.5,
               ),
+              image: player.avatarUrl != null
+                  ? DecorationImage(
+                      image: NetworkImage(player.avatarUrl!),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
             ),
             alignment: Alignment.center,
-            child: Text(
-              player.playerName.isNotEmpty
-                  ? player.playerName[0].toUpperCase()
-                  : '?',
-              style: GoogleFonts.montserrat(
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
-              ),
-            ),
+            child: player.avatarUrl == null
+                ? Text(
+                    player.playerName.isNotEmpty
+                        ? player.playerName[0].toUpperCase()
+                        : '?',
+                    style: GoogleFonts.montserrat(
+                      fontSize: compact ? 12 : 16,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  )
+                : null,
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: compact ? 8 : 12),
           // Name + badges
           Expanded(
             child: Column(
@@ -579,7 +606,7 @@ class _PlayerTile extends StatelessWidget {
                       child: Text(
                         player.playerName,
                         style: GoogleFonts.montserrat(
-                          fontSize: 15,
+                          fontSize: compact ? 12 : 15,
                           fontWeight: FontWeight.w700,
                           color: Colors.white,
                         ),
@@ -611,15 +638,21 @@ class _PlayerTile extends StatelessWidget {
   }
 }
 
+
+
 class _EmptyPlayerSlot extends StatelessWidget {
   final int index;
-  const _EmptyPlayerSlot({required this.index});
+  final bool compact;
+  const _EmptyPlayerSlot({required this.index, this.compact = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      margin: EdgeInsets.only(bottom: compact ? 5 : 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: compact ? 7 : 12,
+      ),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.04),
         borderRadius: BorderRadius.circular(14),
@@ -632,8 +665,8 @@ class _EmptyPlayerSlot extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: compact ? 28 : 36,
+            height: compact ? 28 : 36,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
@@ -644,14 +677,14 @@ class _EmptyPlayerSlot extends StatelessWidget {
             child: Icon(
               Icons.person_outline_rounded,
               color: Colors.white24,
-              size: 20,
+              size: compact ? 16 : 20,
             ),
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: compact ? 8 : 12),
           Text(
             'Menunggu pemain...',
             style: GoogleFonts.montserrat(
-              fontSize: 14,
+              fontSize: compact ? 12 : 14,
               color: Colors.white30,
               fontStyle: FontStyle.italic,
             ),
@@ -661,6 +694,8 @@ class _EmptyPlayerSlot extends StatelessWidget {
     );
   }
 }
+
+
 
 class _SmallBadge extends StatelessWidget {
   final String label;
@@ -728,6 +763,7 @@ class _WaitingButton extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onTap;
   final Color buttonColor;
+  final bool compact;
 
   const _WaitingButton({
     required this.label,
@@ -736,6 +772,7 @@ class _WaitingButton extends StatelessWidget {
     required this.isLoading,
     required this.onTap,
     required this.buttonColor,
+    this.compact = false,
   });
 
   @override
@@ -750,7 +787,7 @@ class _WaitingButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(51),
           child: Container(
             width: double.infinity,
-            height: 52,
+            height: compact ? 40 : 52,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: buttonColor,
@@ -767,10 +804,10 @@ class _WaitingButton extends StatelessWidget {
                   : [],
             ),
             child: isLoading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
+                ? SizedBox(
+                    width: compact ? 18 : 22,
+                    height: compact ? 18 : 22,
+                    child: const CircularProgressIndicator(
                       strokeWidth: 2.5,
                       color: Colors.black54,
                     ),
@@ -778,12 +815,14 @@ class _WaitingButton extends StatelessWidget {
                 : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(icon, size: 22, color: Colors.black87),
-                      const SizedBox(width: 8),
+                      Icon(icon, size: compact ? 18 : 22, color: Colors.black87),
+                      SizedBox(width: compact ? 6 : 8),
                       Text(
                         label,
                         style: GoogleFonts.montserrat(
-                          fontSize: enabled ? 17 : 13,
+                          fontSize: enabled
+                              ? (compact ? 14 : 17)
+                              : (compact ? 11 : 13),
                           fontWeight: FontWeight.w800,
                           color: Colors.black,
                           letterSpacing: enabled ? 0.8 : 0.3,
@@ -797,3 +836,6 @@ class _WaitingButton extends StatelessWidget {
     );
   }
 }
+
+
+

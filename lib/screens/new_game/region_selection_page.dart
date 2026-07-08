@@ -105,42 +105,57 @@ class _RegionSelectionPageState extends State<RegionSelectionPage>
           SafeArea(
             child: FadeTransition(
               opacity: _fadeAnimation,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'SELECT REGION',
-                      style: GoogleFonts.montserrat(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        letterSpacing: 1.2,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 32),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: _regions.length,
-                        itemBuilder: (context, index) {
-                          final region = _regions[index];
-                          final color = _regionColors[region] ?? AppColors.secondaryGreen;
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isMobile = constraints.maxHeight < 500;
+                  final titleSize = isMobile ? 18.0 : 24.0;
+                  final topGap = isMobile ? 8.0 : 32.0;
+                  final cardVertPad = isMobile ? 8.0 : 16.0;
+                  final cardFontSize = isMobile ? 14.0 : 18.0;
+                  final hPad = isMobile ? 12.0 : 16.0;
+                  final vPad = isMobile ? 8.0 : 24.0;
+                  final bottomGap = isMobile ? 6.0 : 12.0;
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _RegionCard(
-                              region: region,
-                              color: color,
-                              onTap: () => _selectRegion(region),
-                            ),
-                          );
-                        },
-                      ),
+                  return Padding(
+                    padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'SELECT REGION',
+                          style: GoogleFonts.montserrat(
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: 1.2,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: topGap),
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: _regions.length,
+                            itemBuilder: (context, index) {
+                              final region = _regions[index];
+                              final color = _regionColors[region] ?? AppColors.secondaryGreen;
+
+                              return Padding(
+                                padding: EdgeInsets.only(bottom: bottomGap),
+                                child: _RegionCard(
+                                  region: region,
+                                  color: color,
+                                  cardVertPad: cardVertPad,
+                                  cardFontSize: cardFontSize,
+                                  onTap: () => _selectRegion(region),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
           ),
@@ -154,11 +169,15 @@ class _RegionCard extends StatefulWidget {
   final String region;
   final Color color;
   final VoidCallback onTap;
+  final double cardVertPad;
+  final double cardFontSize;
 
   const _RegionCard({
     required this.region,
     required this.color,
     required this.onTap,
+    this.cardVertPad = 16.0,
+    this.cardFontSize = 18.0,
   });
 
   @override
@@ -177,7 +196,7 @@ class _RegionCardState extends State<_RegionCard> {
       onTap: widget.onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: widget.cardVertPad),
         decoration: BoxDecoration(
           color: widget.color.withOpacity(_pressed ? 0.28 : 0.18),
           borderRadius: BorderRadius.circular(12),
@@ -198,7 +217,7 @@ class _RegionCardState extends State<_RegionCard> {
           children: [
             Container(
               width: 8,
-              height: 48,
+              height: widget.cardVertPad * 2.4,
               decoration: BoxDecoration(
                 color: widget.color,
                 borderRadius: BorderRadius.circular(4),
@@ -209,7 +228,7 @@ class _RegionCardState extends State<_RegionCard> {
               child: Text(
                 widget.region,
                 style: GoogleFonts.montserrat(
-                  fontSize: 18,
+                  fontSize: widget.cardFontSize,
                   fontWeight: FontWeight.w600,
                   color: Colors.white,
                   letterSpacing: 0.5,

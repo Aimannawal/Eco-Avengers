@@ -40,6 +40,8 @@ class GameStateService {
           'crisis_tokens': tokens['crisis_tokens'],
           'eco_crisis_level': tokens['eco_crisis_level'],
           'selected_region': 'Africa',
+          'sustainable_token_position': 4,
+          'crisis_token_position': 0,
           'action_log': [],
         })
         .select()
@@ -75,6 +77,8 @@ class GameStateService {
     int? crisisTokens,
     int? ecoCrisisLevel,
     String? selectedRegion,
+    int? sustainableTokenPosition,
+    int? crisisTokenPosition,
     Map<String, dynamic>? appendActionLog,
   }) async {
     final updates = <String, dynamic>{};
@@ -86,6 +90,8 @@ class GameStateService {
     if (crisisTokens != null) updates['crisis_tokens'] = crisisTokens;
     if (ecoCrisisLevel != null) updates['eco_crisis_level'] = ecoCrisisLevel;
     if (selectedRegion != null) updates['selected_region'] = selectedRegion;
+    if (sustainableTokenPosition != null) updates['sustainable_token_position'] = sustainableTokenPosition;
+    if (crisisTokenPosition != null) updates['crisis_token_position'] = crisisTokenPosition;
 
     // Append to action_log menggunakan jsonb_build_array
     if (appendActionLog != null) {
@@ -110,6 +116,23 @@ class GameStateService {
         .single();
 
     return MultiplayerGameState.fromMap(data);
+  }
+
+  /// Sync player's hand cards to action log (for multiplayer)
+  Future<MultiplayerGameState> syncPlayerHandCards({
+    required String roomId,
+    required String playerId,
+    required List<String> handCards,
+  }) async {
+    return updateGameState(
+      roomId,
+      appendActionLog: {
+        'type': 'hand_cards_sync',
+        'player_id': playerId,
+        'cards': handCards,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
   }
 
   // ── NEXT TURN ─────────────────────────────────────────────

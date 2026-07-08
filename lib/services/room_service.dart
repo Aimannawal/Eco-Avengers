@@ -180,15 +180,49 @@ class RoomService {
 
   // ── GET PLAYERS ───────────────────────────────────────────
 
-  /// Ambil semua player dalam room sekali
+  /// Ambil semua player dalam room sekali (with avatar from player_profiles)
   Future<List<RoomPlayer>> getPlayers(String roomId) async {
+    // Step 1: Fetch players (no join — safe even without FK)
     final data = await _client
         .from(SupabaseConstants.tableRoomPlayers)
         .select()
         .eq('room_id', roomId)
         .order('joined_at');
 
-    return data.map((p) => RoomPlayer.fromMap(p)).toList();
+    final List<Map<String, dynamic>> playerMaps = data;
+    if (playerMaps.isEmpty) return [];
+
+    // Step 2: Collect unique player_ids and fetch their profiles
+    final playerIds = playerMaps.map((p) => p['player_id'] as String).toSet().toList();
+    List<Map<String, dynamic>> profiles = [];
+    try {
+      profiles = await _client
+          .from(SupabaseConstants.tablePlayerProfiles)
+          .select()
+          .inFilter('player_id', playerIds);
+    } catch (_) {
+      // If player_profiles lookup fails, continue without avatars
+    }
+
+    // Step 3: Build avatar lookup map
+    final avatarMap = <String, String?>{};
+    for (final profile in profiles) {
+      final pid = profile['player_id'] as String?;
+      final avatar = profile['avatar_url'] as String?;
+      if (pid != null) avatarMap[pid] = avatar;
+    }
+
+    // Step 4: Inject player_profiles data into each player map
+    return playerMaps.map((p) {
+      final pid = p['player_id'] as String;
+      final enriched = Map<String, dynamic>.from(p);
+      if (avatarMap.containsKey(pid)) {
+        enriched['player_profiles'] = {
+          'avatar_url': avatarMap[pid],
+        };
+      }
+      return RoomPlayer.fromMap(enriched);
+    }).toList();
   }
 
   // ── REALTIME STREAMS ──────────────────────────────────────

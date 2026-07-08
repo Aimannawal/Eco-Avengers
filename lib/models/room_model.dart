@@ -81,6 +81,7 @@ class RoomPlayer {
   final String roomId;
   final String playerId;
   final String playerName;
+  final String? avatarUrl;
   final String? characterId;
   final String? characterName;
   final String? characterAsset;
@@ -93,6 +94,7 @@ class RoomPlayer {
     required this.roomId,
     required this.playerId,
     required this.playerName,
+    this.avatarUrl,
     this.characterId,
     this.characterName,
     this.characterAsset,
@@ -102,11 +104,21 @@ class RoomPlayer {
   });
 
   factory RoomPlayer.fromMap(Map<String, dynamic> map) {
+    // Handle player_profiles as either Map (one-to-one) or List (one-to-many)
+    String? avatar;
+    final pp = map['player_profiles'];
+    if (pp is Map<String, dynamic>) {
+      avatar = pp['avatar_url'] as String?;
+    } else if (pp is List && pp.isNotEmpty && pp.first is Map<String, dynamic>) {
+      avatar = (pp.first as Map<String, dynamic>)['avatar_url'] as String?;
+    }
+
     return RoomPlayer(
       id: map['id'] as String,
       roomId: map['room_id'] as String,
       playerId: map['player_id'] as String,
       playerName: map['player_name'] as String,
+      avatarUrl: avatar,
       characterId: map['character_id'] as String?,
       characterName: map['character_name'] as String?,
       characterAsset: map['character_asset'] as String?,
@@ -169,6 +181,8 @@ class MultiplayerGameState {
   final int crisisTokens;
   final int ecoCrisisLevel;
   final String selectedRegion;
+  final int sustainableTokenPosition;
+  final int crisisTokenPosition;
   final List<Map<String, dynamic>> actionLog;
   final DateTime updatedAt;
 
@@ -182,6 +196,8 @@ class MultiplayerGameState {
     required this.crisisTokens,
     required this.ecoCrisisLevel,
     required this.selectedRegion,
+    required this.sustainableTokenPosition,
+    required this.crisisTokenPosition,
     required this.actionLog,
     required this.updatedAt,
   });
@@ -203,6 +219,8 @@ class MultiplayerGameState {
       crisisTokens: map['crisis_tokens'] as int,
       ecoCrisisLevel: map['eco_crisis_level'] as int,
       selectedRegion: map['selected_region'] as String,
+      sustainableTokenPosition: map['sustainable_token_position'] as int? ?? 4,
+      crisisTokenPosition: map['crisis_token_position'] as int? ?? 0,
       actionLog: log,
       updatedAt: DateTime.parse(map['updated_at'] as String),
     );
@@ -218,6 +236,8 @@ class MultiplayerGameState {
       'crisis_tokens': crisisTokens,
       'eco_crisis_level': ecoCrisisLevel,
       'selected_region': selectedRegion,
+      'sustainable_token_position': sustainableTokenPosition,
+      'crisis_token_position': crisisTokenPosition,
       'action_log': actionLog,
     };
   }
@@ -232,6 +252,8 @@ class MultiplayerGameState {
     int? crisisTokens,
     int? ecoCrisisLevel,
     String? selectedRegion,
+    int? sustainableTokenPosition,
+    int? crisisTokenPosition,
     List<Map<String, dynamic>>? actionLog,
     DateTime? updatedAt,
   }) {
@@ -245,8 +267,48 @@ class MultiplayerGameState {
       crisisTokens: crisisTokens ?? this.crisisTokens,
       ecoCrisisLevel: ecoCrisisLevel ?? this.ecoCrisisLevel,
       selectedRegion: selectedRegion ?? this.selectedRegion,
+      sustainableTokenPosition: sustainableTokenPosition ?? this.sustainableTokenPosition,
+      crisisTokenPosition: crisisTokenPosition ?? this.crisisTokenPosition,
       actionLog: actionLog ?? this.actionLog,
       updatedAt: updatedAt ?? this.updatedAt,
     );
+  }
+
+  /// Ambil region terakhir untuk player tertentu
+  String? getPlayerRegion(String playerId) {
+    for (final event in actionLog.reversed) {
+      if (event['type'] == 'region_select' && event['player_id'] == playerId) {
+        return event['region'] as String?;
+      }
+    }
+    return null;
+  }
+
+  /// Ambil map semua player ke region pilihan mereka
+  Map<String, String> getAllPlayerRegions() {
+    final Map<String, String> regions = {};
+    for (final event in actionLog) {
+      if (event['type'] == 'region_select') {
+        final pid = event['player_id'] as String?;
+        final reg = event['region'] as String?;
+        if (pid != null && reg != null) {
+          regions[pid] = reg;
+        }
+      }
+    }
+    return regions;
+  }
+
+  /// Ambil hand cards terakhir untuk player tertentu
+  List<String> getPlayerHandCards(String playerId) {
+    for (final event in actionLog.reversed) {
+      if (event['type'] == 'hand_cards_sync' && event['player_id'] == playerId) {
+        final cardsList = event['cards'];
+        if (cardsList is List) {
+          return cardsList.map((e) => e.toString()).toList();
+        }
+      }
+    }
+    return [];
   }
 }

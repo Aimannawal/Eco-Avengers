@@ -17,6 +17,8 @@ class SupabaseConstants {
   static const String tableGameRooms = 'game_rooms';
   static const String tableRoomPlayers = 'room_players';
   static const String tableGameStates = 'game_states';
+  static const String tablePlayerProfiles = 'player_profiles';
+  static const String tableGameResults = 'game_results';
 
   // ── Channel Prefixes (Supabase Realtime) ─────────────────
   static const String channelRoomPrefix = 'room:';

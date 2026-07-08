@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_colors.dart';
+import '../../models/room_model.dart';
 
 class MapLocation {
   final String name;
@@ -23,6 +24,20 @@ class InteractiveMapDialog extends StatefulWidget {
   final Color characterAccentColor;
   final Function(String)? onRegionSelected;
   final String initialRegion;
+  final Map<String, String>? existingPlayerRegions;
+  final List<RoomPlayer>? players;
+  final String? myPlayerId;
+  /// When true, the dialog cannot be dismissed until a region is selected.
+  /// Used for initial multiplayer map selection.
+  final bool forceSelect;
+  /// Total players count for showing progress (used with forceSelect).
+  final int totalPlayers;
+  /// Called before confirming region selection. Returns true if valid (no conflict).
+  /// Used to prevent race conditions where two players pick the same region.
+  final Future<bool> Function(String region)? onValidateRegion;
+  /// Notifier for real-time region updates from parent (streams from Supabase).
+  /// When updated, the dialog refreshes occupied regions immediately.
+  final ValueNotifier<Map<String, String>>? regionsNotifier;
 
   const InteractiveMapDialog({
     Key? key,
@@ -30,6 +45,13 @@ class InteractiveMapDialog extends StatefulWidget {
     required this.characterAccentColor,
     this.onRegionSelected,
     this.initialRegion = 'North America',
+    this.existingPlayerRegions,
+    this.players,
+    this.myPlayerId,
+    this.forceSelect = false,
+    this.totalPlayers = 0,
+    this.onValidateRegion,
+    this.regionsNotifier,
   }) : super(key: key);
 
   @override
@@ -82,9 +104,20 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
   late String _currentLocation;
   late Offset _currentCharacterPos;
 
+  // Track whether a region has been picked (for forceSelect mode)
+  bool _hasPicked = false;
+
+  // Real-time regions map (updated via notifier)
+  Map<String, String>? _liveRegions;
+
+  /// Effective regions: live (from notifier) takes priority over initial snapshot
+  Map<String, String>? get _effectiveRegions => _liveRegions ?? widget.existingPlayerRegions;
+
   @override
   void initState() {
     super.initState();
+    _liveRegions = widget.existingPlayerRegions;
+    widget.regionsNotifier?.addListener(_onRegionsUpdated);
 
     // Find the location matching the initial region
     final initialLocation = mapLocations.firstWhere(
@@ -104,13 +137,48 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
   @override
   void dispose() {
     _moveController.dispose();
+    widget.regionsNotifier?.removeListener(_onRegionsUpdated);
     super.dispose();
   }
 
-  void _moveCharacterToLocation(MapLocation location) {
+  void _onRegionsUpdated() {
+    if (!mounted) return;
+    setState(() {
+      _liveRegions = widget.regionsNotifier?.value;
+    });
+  }
+
+  void _moveCharacterToLocation(MapLocation location) async {
+    // In forceSelect mode, if already picked, don't allow re-selection
+    if (widget.forceSelect && _hasPicked) return;
+
     if (_currentLocation == location.name) {
+      // Validate region before confirming (prevents race condition)
+      if (widget.onValidateRegion != null) {
+        final isValid = await widget.onValidateRegion!(location.name);
+        if (!isValid) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '${location.name} sudah dipilih pemain lain! Pilih region lain.',
+                ),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          return;
+        }
+      }
       widget.onRegionSelected?.call(location.name);
-      Navigator.of(context).pop();
+      if (widget.forceSelect) {
+        // Don't pop — let parent handle dismissal after all players pick
+        setState(() => _hasPicked = true);
+      } else {
+        Navigator.of(context).pop();
+      }
       return;
     }
 
@@ -123,22 +191,66 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
           CurvedAnimation(parent: _moveController, curve: Curves.easeInOut),
         );
 
-    _moveController.forward(from: 0.0).then((_) {
+    _moveController.forward(from: 0.0).then((_) async {
       setState(() {
         _currentLocation = location.name;
         _currentCharacterPos = location.position;
       });
 
+      // Validate region before confirming (prevents race condition)
+      if (widget.onValidateRegion != null) {
+        final isValid = await widget.onValidateRegion!(location.name);
+        if (!isValid) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '${location.name} sudah dipilih pemain lain! Pilih region lain.',
+                ),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          return;
+        }
+      }
+
       // Call the region selection callback if provided
       widget.onRegionSelected?.call(location.name);
 
-      // Close the dialog after a short delay to show the final position
-      Future.delayed(const Duration(milliseconds: 300), () {
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-      });
+      if (widget.forceSelect) {
+        // Don't pop — let parent handle dismissal after all players pick
+        setState(() => _hasPicked = true);
+      } else {
+        // Close the dialog after a short delay to show the final position
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            Navigator.of(context).pop();
+          }
+        });
+      }
     });
+  }
+
+  List<RoomPlayer> _getOccupantsOfRegion(String regionName) {
+    final regions = _effectiveRegions;
+    if (regions == null || widget.players == null) return [];
+    final List<RoomPlayer> occupants = [];
+    regions.forEach((pid, reg) {
+      if (reg == regionName && pid != widget.myPlayerId) {
+        try {
+          final p = widget.players!.firstWhere(
+            (player) => player.playerId == pid,
+          );
+          occupants.add(p);
+        } catch (_) {
+          // Player not found in list, skip
+        }
+      }
+    });
+    return occupants;
   }
 
   @override
@@ -177,8 +289,12 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
                     final pawnW = mapW * 0.07;
                     final pawnH = mapH * 0.12;
 
-                    final buttonW = isWide ? 200.0 : 148.0;
-                    final buttonH = isWide ? 88.0 : 72.0;
+                    final buttonW = isWide 
+                        ? (mapW * 0.28).clamp(100.0, 210.0) 
+                        : (mapW * 0.26).clamp(80.0, 150.0);
+                    final buttonH = isWide
+                        ? (mapH * 0.25).clamp(55.0, 100.0)
+                        : (mapH * 0.22).clamp(42.0, 75.0);
 
                     return Stack(
                       clipBehavior: Clip.none,
@@ -214,6 +330,8 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
                         // 2. Scattered Continent Selection Cards
                         ...mapLocations.map((location) {
                           final isSelected = _currentLocation == location.name;
+                          final occupants = _getOccupantsOfRegion(location.name);
+                          final isOccupied = occupants.isNotEmpty;
 
                           // Position the card directly at continent coordinates
                           return Positioned(
@@ -225,12 +343,28 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
                               isWide: isWide,
                               buttonW: buttonW,
                               buttonH: buttonH,
-                              onTap: () => _moveCharacterToLocation(location),
+                              isOccupied: isOccupied,
+                              occupants: occupants,
+                              onTap: isOccupied
+                                  ? () {
+                                      ScaffoldMessenger.of(context).clearSnackBars();
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            '${location.name} is occupied by ${occupants.map((o) => o.playerName).join(", ")}!',
+                                          ),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                    }
+                                  : () => _moveCharacterToLocation(location),
                             ),
                           );
                         }).toList(),
 
                         // 3. Animated Character Pawn standing on top of the selected region button
+                        // In forceSelect mode, hide pawn until player picks a region
+                        if (!widget.forceSelect || _hasPicked)
                         AnimatedBuilder(
                           animation: _moveController,
                           builder: (context, child) {
@@ -321,33 +455,85 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
                         ),
 
                         // 5. Close Button
-                        Positioned(
-                          top: 12,
-                          right: 12,
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => Navigator.of(context).pop(),
-                              borderRadius: BorderRadius.circular(100),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.6),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: Colors.white24,
-                                    width: 1.5,
+                        // In forceSelect mode, only show close button AFTER picking a region
+                        if (!widget.forceSelect || _hasPicked)
+                        if (widget.myPlayerId == null || (_effectiveRegions != null && _effectiveRegions![widget.myPlayerId] != null))
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => Navigator.of(context).pop(),
+                                borderRadius: BorderRadius.circular(100),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white24,
+                                      width: 1.5,
+                                    ),
                                   ),
-                                ),
-                                padding: const EdgeInsets.all(6),
-                                child: const Icon(
-                                  Icons.close_rounded,
-                                  size: 20,
-                                  color: Colors.white,
+                                  padding: const EdgeInsets.all(6),
+                                  child: const Icon(
+                                    Icons.close_rounded,
+                                    size: 20,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
+
+                        // 6. Waiting-for-others overlay (forceSelect mode after picking)
+                        if (widget.forceSelect && _hasPicked)
+                          Positioned.fill(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                color: Colors.black.withOpacity(0.55),
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const CircularProgressIndicator(
+                                        color: Color(0xFFA5C18A),
+                                        strokeWidth: 3,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'Region dipilih! ✓',
+                                        style: GoogleFonts.montserrat(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          color: const Color(0xFFA5C18A),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Menunggu pemain lain memilih region...',
+                                        style: GoogleFonts.montserrat(
+                                          fontSize: 13,
+                                          color: Colors.white70,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        '${_effectiveRegions?.length ?? 0}/${widget.totalPlayers} pemain sudah pilih',
+                                        style: GoogleFonts.montserrat(
+                                          fontSize: 14,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     );
                   },
@@ -367,6 +553,8 @@ class _RegionButton extends StatefulWidget {
   final bool isWide;
   final double buttonW;
   final double buttonH;
+  final bool isOccupied;
+  final List<RoomPlayer> occupants;
   final VoidCallback onTap;
 
   const _RegionButton({
@@ -375,6 +563,8 @@ class _RegionButton extends StatefulWidget {
     required this.isWide,
     required this.buttonW,
     required this.buttonH,
+    required this.isOccupied,
+    required this.occupants,
     required this.onTap,
   });
 
@@ -387,7 +577,28 @@ class _RegionButtonState extends State<_RegionButton> {
 
   @override
   Widget build(BuildContext context) {
-    final iconSize = widget.isWide ? 38.0 : 28.0;
+    final iconSize = (widget.buttonH * 0.45).clamp(20.0, 38.0);
+    // Occupied avatar: much larger, like leaderboard profile photos
+    final avatarSize = (widget.buttonH * 0.55).clamp(28.0, 52.0);
+
+    Color cardColor = const Color(0xFFFAF8F5);
+    BorderSide borderSide = const BorderSide(
+      color: Color(0xFFE5E0D8),
+      width: 1.5,
+    );
+
+    if (widget.isOccupied) {
+      cardColor = const Color(0xFFFBEBEB); // light red for occupied
+      borderSide = const BorderSide(
+        color: Color(0xFFE89A9A),
+        width: 1.5,
+      );
+    } else if (widget.isSelected) {
+      borderSide = const BorderSide(
+        color: Color(0xFF38A3A5),
+        width: 3.0,
+      );
+    }
 
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
@@ -401,14 +612,9 @@ class _RegionButtonState extends State<_RegionButton> {
           width: widget.buttonW,
           height: widget.buttonH,
           decoration: BoxDecoration(
-            color: const Color(0xFFFAF8F5), // Premium off-white card tone
+            color: cardColor,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: widget.isSelected
-                  ? const Color(0xFF38A3A5) // Highlight color
-                  : const Color(0xFFE5E0D8), // Subtle off-white border
-              width: widget.isSelected ? 3.0 : 1.5,
-            ),
+            border: Border.fromBorderSide(borderSide),
             boxShadow: [
               BoxShadow(
                 color: widget.isSelected
@@ -427,9 +633,9 @@ class _RegionButtonState extends State<_RegionButton> {
               Text(
                 widget.location.name.toUpperCase(),
                 style: GoogleFonts.montserrat(
-                  fontSize: widget.isWide ? 10.0 : 7.5,
+                  fontSize: (widget.buttonH * 0.15).clamp(6.5, 11.0),
                   fontWeight: FontWeight.w900,
-                  color: Colors.black87,
+                  color: widget.isOccupied ? Colors.red.shade900 : Colors.black87,
                   letterSpacing: 0.5,
                   height: 1.1,
                 ),
@@ -437,32 +643,88 @@ class _RegionButtonState extends State<_RegionButton> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 6),
-              // Token Row (token left-aligned, space on right if selected for pawn)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: EdgeInsets.only(left: widget.isWide ? 12.0 : 6.0),
-                    child: Image.asset(
-                      widget.location.iconAsset,
-                      width: iconSize,
-                      height: iconSize,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          width: iconSize,
-                          height: iconSize,
-                          decoration: const BoxDecoration(
-                            color: Colors.grey,
+              const SizedBox(height: 4),
+              // Occupied: show big character photo + name
+              widget.isOccupied
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Large character photo (zoomed in like leaderboard)
+                        Container(
+                          width: avatarSize,
+                          height: avatarSize,
+                          decoration: BoxDecoration(
                             shape: BoxShape.circle,
+                            border: Border.all(color: Colors.red.shade400, width: 2),
+                            image: widget.occupants.first.characterAsset != null
+                                ? DecorationImage(
+                                    image: AssetImage(widget.occupants.first.characterAsset!),
+                                    fit: BoxFit.cover,
+                                    filterQuality: FilterQuality.medium,
+                                  )
+                                : null,
+                            color: Colors.white,
                           ),
-                        );
-                      },
+                          child: widget.occupants.first.characterAsset == null
+                              ? Icon(Icons.person, size: avatarSize * 0.5, color: Colors.red.shade400)
+                              : null,
+                        ),
+                        const SizedBox(height: 2),
+                        // Character name tag
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          constraints: BoxConstraints(maxWidth: widget.buttonW - 16),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade400,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            widget.occupants.first.characterName ?? widget.occupants.first.playerName,
+                            style: GoogleFonts.montserrat(
+                              fontSize: (widget.buttonH * 0.11).clamp(5.5, 9.0),
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        if (widget.occupants.length > 1)
+                          Text(
+                            '+${widget.occupants.length - 1} more',
+                            style: GoogleFonts.montserrat(
+                              fontSize: 7,
+                              color: Colors.red.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.only(left: widget.isWide ? 12.0 : 6.0),
+                          child: Image.asset(
+                            widget.location.iconAsset,
+                            width: iconSize,
+                            height: iconSize,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: iconSize,
+                                height: iconSize,
+                                decoration: const BoxDecoration(
+                                  color: Colors.grey,
+                                  shape: BoxShape.circle,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),

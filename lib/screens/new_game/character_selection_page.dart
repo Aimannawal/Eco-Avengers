@@ -174,6 +174,30 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
     return const Color(0xFF38A3A5);
   }
 
+  /// Check if a character is already taken by another player in multiplayer
+  bool _isCharacterTaken(String characterTitle) {
+    if (!_isMultiplayer) return false;
+    final characterId = characterTitle.toLowerCase().replaceAll(' ', '_');
+    return _players.any((player) => 
+      player.characterId == characterId && 
+      player.playerId != widget.myPlayerId
+    );
+  }
+
+  /// Get the player who took a character (null if not taken or taken by me)
+  RoomPlayer? _getTakenByPlayer(String characterTitle) {
+    if (!_isMultiplayer) return null;
+    final characterId = characterTitle.toLowerCase().replaceAll(' ', '_');
+    try {
+      return _players.firstWhere((player) => 
+        player.characterId == characterId && 
+        player.playerId != widget.myPlayerId
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ── Navigation ────────────────────────────────────────────
 
   void _select(CharacterOption character) {
@@ -251,15 +275,16 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
                 builder: (context, constraints) {
                   final isCompactHeight = constraints.maxHeight < 500;
                   final isWide = constraints.maxWidth >= 760;
+                  final isPhonePortrait = !isWide && !isCompactHeight;
                   
                   final boardWidth = isWide
                       ? math.min(constraints.maxWidth * 0.96, 1140.0)
-                      : constraints.maxWidth * 0.94;
-                  final boardHeight = math.min(constraints.maxHeight * 0.94, 580.0);
+                      : constraints.maxWidth * 0.96;
+                  final boardHeight = math.min(constraints.maxHeight * 0.94, isPhonePortrait ? 640.0 : 580.0);
 
-                  final cardWidth = isCompactHeight ? 100.0 : (isWide ? 190.0 : 140.0);
-                  final cardHeight = isCompactHeight ? 180.0 : (isWide ? 340.0 : 250.0);
-                  final gap = isCompactHeight ? 8.0 : (isWide ? 16.0 : 10.0);
+                  final cardWidth = isCompactHeight ? 130.0 : (isWide ? 190.0 : 200.0);
+                  final cardHeight = isCompactHeight ? 230.0 : (isWide ? 340.0 : 370.0);
+                  final gap = isCompactHeight ? 12.0 : (isWide ? 16.0 : 14.0);
 
                   return Stack(
                     alignment: Alignment.center,
@@ -385,16 +410,18 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
                                             child: Row(
                                               mainAxisAlignment: MainAxisAlignment.center,
                                               children: [
-                                                for (int i = 0; i < widget.characters.length; i++) ...[
+                                                for (int i = 0; i < widget.characters.length; i++) ...[ 
                                                   _CharacterCard(
                                                     character: widget.characters[i],
-                                                    onTap: _characterSelected
+                                                    onTap: (_characterSelected || _isCharacterTaken(widget.characters[i].title))
                                                         ? null
                                                         : () => _select(widget.characters[i]),
                                                     width: cardWidth,
                                                     height: cardHeight,
                                                     isWide: isWide,
+                                                    isPhone: isPhonePortrait,
                                                     profileAsset: _getChibiProfilePath(widget.characters[i].title),
+                                                    takenBy: _getTakenByPlayer(widget.characters[i].title),
                                                   ),
                                                   if (i != widget.characters.length - 1)
                                                     SizedBox(width: gap),
@@ -517,7 +544,9 @@ class _CharacterCard extends StatefulWidget {
   final double width;
   final double height;
   final bool isWide;
+  final bool isPhone;
   final String profileAsset;
+  final RoomPlayer? takenBy;
 
   const _CharacterCard({
     required this.character,
@@ -525,7 +554,9 @@ class _CharacterCard extends StatefulWidget {
     required this.width,
     required this.height,
     required this.isWide,
+    this.isPhone = false,
     required this.profileAsset,
+    this.takenBy,
   });
 
   @override
@@ -568,23 +599,24 @@ class _CharacterCardState extends State<_CharacterCard> {
               children: [
                 // 1. Header (Title)
                 Container(
-                  height: widget.isWide ? 50 : 40,
+                  height: widget.isWide ? 50 : (widget.isPhone ? 36 : 24),
                   width: double.infinity,
                   decoration: const BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
                     border: Border(bottom: BorderSide(color: Color(0xFF111111), width: 3)),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
                   alignment: Alignment.center,
                   child: Text(
                     widget.character.title.toUpperCase(),
                     textAlign: TextAlign.center,
                     style: GoogleFonts.montserrat(
                       color: widget.character.accentColor,
-                      fontSize: widget.isWide ? 12.0 : 10.0,
+                      fontSize: widget.isWide ? 12.0 : (widget.isPhone ? 9.0 : 6.5),
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 0.5,
+                      letterSpacing: 0.3,
+                      height: 1.0,
                     ),
                   ),
                 ),
@@ -593,17 +625,104 @@ class _CharacterCardState extends State<_CharacterCard> {
                   child: Container(
                     width: double.infinity,
                     color: const Color(0xFF2AA5B2),
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: Image.asset(
-                          widget.profileAsset,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(Icons.person, color: Colors.white);
-                          },
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Image.asset(
+                              widget.profileAsset,
+                              fit: BoxFit.fitHeight,
+                              height: double.infinity,
+                              cacheHeight: 512,
+                              cacheWidth: 512,
+                              filterQuality: FilterQuality.medium,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.person_outline,
+                                    color: Colors.white70,
+                                    size: 40,
+                                  ),
+                                );
+                              },
+                              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                                if (wasSynchronouslyLoaded) return child;
+                                return AnimatedOpacity(
+                                  opacity: frame != null ? 1.0 : 0.0,
+                                  duration: const Duration(milliseconds: 500),
+                                  child: child,
+                                );
+                              },
+                            ),
+                          ),
                         ),
-                      ),
+                        // Taken overlay
+                        if (widget.takenBy != null)
+                          Positioned.fill(
+                            child: Container(
+                              color: Colors.black.withOpacity(0.55),
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Player avatar (account profile pic)
+                                    Container(
+                                      width: widget.isWide ? 48 : (widget.isPhone ? 40 : 32),
+                                      height: widget.isWide ? 48 : (widget.isPhone ? 40 : 32),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 2),
+                                        image: widget.takenBy!.avatarUrl != null
+                                            ? DecorationImage(
+                                                image: NetworkImage(widget.takenBy!.avatarUrl!),
+                                                fit: BoxFit.cover,
+                                              )
+                                            : null,
+                                        color: Colors.white24,
+                                      ),
+                                      child: widget.takenBy!.avatarUrl == null
+                                          ? const Icon(Icons.person, color: Colors.white70, size: 16)
+                                          : null,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      widget.takenBy!.playerName,
+                                      style: GoogleFonts.montserrat(
+                                        fontSize: widget.isWide ? 12 : (widget.isPhone ? 10 : 8),
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 2),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.shade400,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        'TAKEN',
+                                        style: GoogleFonts.montserrat(
+                                          fontSize: widget.isWide ? 9 : (widget.isPhone ? 8 : 6),
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -611,19 +730,19 @@ class _CharacterCardState extends State<_CharacterCard> {
                 Container(height: 3, color: const Color(0xFF111111)),
                 // 3. Description
                 Container(
-                  height: widget.isWide ? 116 : 80,
+                  height: widget.isWide ? 116 : (widget.isPhone ? 72 : 48),
                   width: double.infinity,
                   decoration: const BoxDecoration(
                     color: Color(0xFFFAF8F5),
                     borderRadius: BorderRadius.vertical(bottom: Radius.circular(8)),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
                   alignment: Alignment.center,
                   child: Text(
                     widget.character.description,
                     textAlign: TextAlign.center,
                     style: GoogleFonts.montserrat(
-                      fontSize: widget.isWide ? 12.0 : 9.5,
+                      fontSize: widget.isWide ? 12.0 : (widget.isPhone ? 9.0 : 7.0),
                       fontWeight: FontWeight.w700,
                       color: Colors.black87,
                       height: 1.3,

@@ -164,13 +164,14 @@ class _LobbyScreenState extends State<LobbyScreen>
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth >= 760;
+                  final isCompact = constraints.maxHeight < 500;
                   final boardWidth = isWide
                       ? math.min(constraints.maxWidth * 0.70, 600.0)
                       : constraints.maxWidth * 0.90;
 
                   return Center(
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      padding: EdgeInsets.symmetric(vertical: isCompact ? 10 : 24),
                       child: SizedBox(
                         width: boardWidth,
                         child: Stack(
@@ -190,7 +191,12 @@ class _LobbyScreenState extends State<LobbyScreen>
                                   ),
                                 ],
                               ),
-                              padding: const EdgeInsets.fromLTRB(24, 36, 24, 28),
+                              padding: EdgeInsets.fromLTRB(
+                                24,
+                                isCompact ? 20 : 36,
+                                24,
+                                isCompact ? 16 : 28,
+                              ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -198,7 +204,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                                   Text(
                                     'MULTIPLAYER',
                                     style: GoogleFonts.montserrat(
-                                      fontSize: isWide ? 28 : 22,
+                                      fontSize: isCompact ? 18 : (isWide ? 28 : 22),
                                       fontWeight: FontWeight.w900,
                                       color: Colors.white,
                                       letterSpacing: 2,
@@ -214,9 +220,9 @@ class _LobbyScreenState extends State<LobbyScreen>
                                   const SizedBox(height: 4),
                                   // Difficulty badge
                                   Container(
-                                    padding: const EdgeInsets.symmetric(
+                                    padding: EdgeInsets.symmetric(
                                       horizontal: 14,
-                                      vertical: 4,
+                                      vertical: isCompact ? 2 : 4,
                                     ),
                                     decoration: BoxDecoration(
                                       color: Colors.white.withOpacity(0.20),
@@ -228,21 +234,23 @@ class _LobbyScreenState extends State<LobbyScreen>
                                     child: Text(
                                       'Mode: $_difficultyLabel  •  ${AppConstants.minPlayers}–${AppConstants.maxPlayers} Pemain',
                                       style: GoogleFonts.montserrat(
-                                        fontSize: 12,
+                                        fontSize: isCompact ? 10 : 12,
                                         color: Colors.white70,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(height: 28),
+                                  SizedBox(height: isCompact ? 14 : 28),
 
                                   // Name input
                                   _LobbyTextField(
                                     controller: _nameController,
                                     hint: 'Nama kamu',
                                     icon: Icons.person_outline_rounded,
+                                    compact: isCompact,
+                                    readOnly: true,
                                   ),
-                                  const SizedBox(height: 20),
+                                  SizedBox(height: isCompact ? 10 : 20),
 
                                   // Divider
                                   Row(children: [
@@ -271,7 +279,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                                       ),
                                     ),
                                   ]),
-                                  const SizedBox(height: 20),
+                                  SizedBox(height: isCompact ? 10 : 20),
 
                                   // Create Room Button
                                   _LobbyButton(
@@ -280,8 +288,9 @@ class _LobbyScreenState extends State<LobbyScreen>
                                     color: _buttonColor,
                                     isLoading: _isLoading,
                                     onTap: _createRoom,
+                                    compact: isCompact,
                                   ),
-                                  const SizedBox(height: 16),
+                                  SizedBox(height: isCompact ? 8 : 16),
 
                                   // Divider "ATAU"
                                   Row(children: [
@@ -309,7 +318,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                                       ),
                                     ),
                                   ]),
-                                  const SizedBox(height: 16),
+                                  SizedBox(height: isCompact ? 8 : 16),
 
                                   // Join Room input + button
                                   Row(
@@ -321,6 +330,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                                           icon: Icons.vpn_key_outlined,
                                           maxLength: AppConstants.roomCodeLength,
                                           textCapitalization: TextCapitalization.characters,
+                                          compact: isCompact,
                                         ),
                                       ),
                                       const SizedBox(width: 10),
@@ -329,13 +339,14 @@ class _LobbyScreenState extends State<LobbyScreen>
                                         onTap: _joinRoom,
                                         borderColor: _borderColor,
                                         buttonColor: _buttonColor,
+                                        compact: isCompact,
                                       ),
                                     ],
                                   ),
 
                                   // Error message
                                   if (_errorMessage != null) ...[
-                                    const SizedBox(height: 16),
+                                    SizedBox(height: isCompact ? 8 : 16),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 14,
@@ -434,6 +445,8 @@ class _LobbyTextField extends StatelessWidget {
   final IconData icon;
   final int? maxLength;
   final TextCapitalization textCapitalization;
+  final bool compact;
+  final bool readOnly;
 
   const _LobbyTextField({
     required this.controller,
@@ -441,16 +454,19 @@ class _LobbyTextField extends StatelessWidget {
     required this.icon,
     this.maxLength,
     this.textCapitalization = TextCapitalization.words,
+    this.compact = false,
+    this.readOnly = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      readOnly: readOnly,
       maxLength: maxLength,
       textCapitalization: textCapitalization,
       style: GoogleFonts.montserrat(
-        fontSize: 15,
+        fontSize: compact ? 13 : 15,
         fontWeight: FontWeight.w700,
         color: Colors.white,
       ),
@@ -458,11 +474,11 @@ class _LobbyTextField extends StatelessWidget {
         counterText: '',
         hintText: hint,
         hintStyle: GoogleFonts.montserrat(
-          fontSize: 14,
+          fontSize: compact ? 12 : 14,
           color: Colors.white54,
           fontWeight: FontWeight.w600,
         ),
-        prefixIcon: Icon(icon, color: Colors.white60, size: 20),
+        prefixIcon: Icon(icon, color: Colors.white60, size: compact ? 18 : 20),
         filled: true,
         fillColor: Colors.white.withOpacity(0.12),
         border: OutlineInputBorder(
@@ -477,7 +493,10 @@ class _LobbyTextField extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: Color(0xFFA5C18A), width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: compact ? 8 : 14,
+        ),
       ),
     );
   }
@@ -489,6 +508,7 @@ class _LobbyButton extends StatelessWidget {
   final Color color;
   final bool isLoading;
   final VoidCallback onTap;
+  final bool compact;
 
   const _LobbyButton({
     required this.label,
@@ -496,6 +516,7 @@ class _LobbyButton extends StatelessWidget {
     required this.color,
     required this.isLoading,
     required this.onTap,
+    this.compact = false,
   });
 
   @override
@@ -507,7 +528,7 @@ class _LobbyButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(51),
         child: Container(
           width: double.infinity,
-          height: 52,
+          height: compact ? 40 : 52,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: color,
@@ -522,10 +543,10 @@ class _LobbyButton extends StatelessWidget {
             ],
           ),
           child: isLoading
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
+              ? SizedBox(
+                  width: compact ? 18 : 22,
+                  height: compact ? 18 : 22,
+                  child: const CircularProgressIndicator(
                     strokeWidth: 2.5,
                     color: Colors.black54,
                   ),
@@ -533,12 +554,12 @@ class _LobbyButton extends StatelessWidget {
               : Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon, size: 20, color: Colors.black87),
-                    const SizedBox(width: 8),
+                    Icon(icon, size: compact ? 16 : 20, color: Colors.black87),
+                    SizedBox(width: compact ? 6 : 8),
                     Text(
                       label,
                       style: GoogleFonts.montserrat(
-                        fontSize: 16,
+                        fontSize: compact ? 13 : 16,
                         fontWeight: FontWeight.w800,
                         color: Colors.black,
                         letterSpacing: 0.8,
@@ -557,12 +578,14 @@ class _JoinButton extends StatelessWidget {
   final VoidCallback onTap;
   final Color borderColor;
   final Color buttonColor;
+  final bool compact;
 
   const _JoinButton({
     required this.isLoading,
     required this.onTap,
     required this.borderColor,
     required this.buttonColor,
+    this.compact = false,
   });
 
   @override
@@ -573,8 +596,8 @@ class _JoinButton extends StatelessWidget {
         onTap: isLoading ? null : onTap,
         borderRadius: BorderRadius.circular(14),
         child: Container(
-          width: 68,
-          height: 52,
+          width: compact ? 56 : 68,
+          height: compact ? 40 : 52,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: buttonColor,
@@ -589,10 +612,10 @@ class _JoinButton extends StatelessWidget {
             ],
           ),
           child: isLoading
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
+              ? SizedBox(
+                  width: compact ? 14 : 18,
+                  height: compact ? 14 : 18,
+                  child: const CircularProgressIndicator(
                     strokeWidth: 2,
                     color: Colors.black54,
                   ),
@@ -600,7 +623,7 @@ class _JoinButton extends StatelessWidget {
               : Text(
                   'JOIN',
                   style: GoogleFonts.montserrat(
-                    fontSize: 13,
+                    fontSize: compact ? 11 : 13,
                     fontWeight: FontWeight.w900,
                     color: Colors.black,
                     letterSpacing: 0.5,
@@ -611,3 +634,5 @@ class _JoinButton extends StatelessWidget {
     );
   }
 }
+
+
