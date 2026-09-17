@@ -126,4 +126,11 @@ class GameResult {
   }
 
   bool get isWin => result == 'win';
+  bool get isMultiplayer => mode.startsWith('multiplayer');
+  String? get roomId {
+    if (isMultiplayer && mode.contains('_')) {
+      return mode.split('_')[1];
+    }
+    return null;
+  }
 }

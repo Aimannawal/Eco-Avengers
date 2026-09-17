@@ -299,6 +299,28 @@ class MultiplayerGameState {
     return regions;
   }
 
+  /// Ambil semua badge yang di-unlock oleh semua player.
+  /// Map<PlayerId, Map<BadgeType, Level>>
+  Map<String, Map<String, int>> getAllPlayerBadges() {
+    final Map<String, Map<String, int>> badges = {};
+    for (final event in actionLog) {
+      if (event['type'] == 'badge_unlock') {
+        final pid = event['player_id'] as String?;
+        final badge = event['badge'] as String?;
+        final level = event['level'] as int?;
+        if (pid != null && badge != null && level != null) {
+          badges[pid] ??= {};
+          // Keep the highest level unlocked
+          final currentLevel = badges[pid]![badge] ?? 0;
+          if (level > currentLevel) {
+            badges[pid]![badge] = level;
+          }
+        }
+      }
+    }
+    return badges;
+  }
+
   /// Ambil hand cards terakhir untuk player tertentu
   List<String> getPlayerHandCards(String playerId) {
     for (final event in actionLog.reversed) {

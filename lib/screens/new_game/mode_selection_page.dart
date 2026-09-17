@@ -46,10 +46,6 @@ class ModeSelectionPage extends StatelessWidget {
     ),
   ];
 
-  static const Color _buttonColor = Color(0xFFA5C18A); // Original light green button tone
-  static const Color _borderColor = Color(0xFF111111);
-  static const Color _feltColor = Color(0xFF6A9073); // Original green board tone
-
   void _selectDifficulty(BuildContext context, String difficulty) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -69,80 +65,30 @@ class ModeSelectionPage extends StatelessWidget {
     );
   }
 
-  Widget _buildDifficultyButtons({
-    required BuildContext context,
-    required double buttonWidth,
-    required double buttonHeight,
-    required double gap,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _ModeChoiceButton(
-          label: 'Easy',
-          width: buttonWidth,
-          height: buttonHeight,
-          onTap: () => _selectDifficulty(context, 'easy'),
-          buttonColor: _buttonColor,
-          borderColor: _borderColor,
+
+  // --- ASSETS ---
+  static const String _bgPath = 'assets/Element Eco Avenger/Menu page/bg.png';
+  static const String _grassPath = 'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_083830_0000.png';
+  static const String _scrollPath = 'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_085509_0000.png';
+  static const String _bannerPath = 'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_085604_0000.png';
+  
+  static const String _easyPath = 'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_085529_0000.png';
+  static const String _mediumPath = 'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_085536_0000.png';
+  static const String _hardPath = 'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_085544_0000.png';
+  static const String _multiplayerPath = 'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_085552_0000.png';
+
+  Widget _buildImageButton(String assetPath, VoidCallback onTap, double width) {
+    return GestureDetector(
+      onTap: onTap,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Image.asset(
+          assetPath,
+          width: width,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
         ),
-        SizedBox(height: gap),
-        _ModeChoiceButton(
-          label: 'Medium',
-          width: buttonWidth,
-          height: buttonHeight,
-          onTap: () => _selectDifficulty(context, 'normal'),
-          buttonColor: _buttonColor,
-          borderColor: _borderColor,
-        ),
-        SizedBox(height: gap),
-        _ModeChoiceButton(
-          label: 'Hard',
-          width: buttonWidth,
-          height: buttonHeight,
-          onTap: () => _selectDifficulty(context, 'hard'),
-          buttonColor: _buttonColor,
-          borderColor: _borderColor,
-        ),
-        SizedBox(height: gap * 1.5),
-        // ── Divider ──
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: buttonWidth * 0.3,
-              child: Divider(color: Colors.white.withOpacity(0.35), thickness: 1.2),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                'ATAU',
-                style: GoogleFonts.montserrat(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white54,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ),
-            SizedBox(
-              width: buttonWidth * 0.3,
-              child: Divider(color: Colors.white.withOpacity(0.35), thickness: 1.2),
-            ),
-          ],
-        ),
-        SizedBox(height: gap),
-        // ── Multiplayer button ──
-        _ModeChoiceButton(
-          label: '🌐  MULTIPLAYER',
-          width: buttonWidth,
-          height: buttonHeight,
-          onTap: () => _selectMultiplayer(context, 'normal'),
-          buttonColor: const Color(0xFF4F9DC4),
-          borderColor: _borderColor,
-          textColor: Colors.white,
-        ),
-      ],
+      ),
     );
   }
 
@@ -152,385 +98,159 @@ class ModeSelectionPage extends StatelessWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Wood background table
+          // 1. Background Sky & Hills
           Image.asset(
-            'assets/background/kayu.png',
+            _bgPath,
             fit: BoxFit.cover,
-            alignment: Alignment.center,
             filterQuality: FilterQuality.high,
           ),
-          Container(color: Colors.black.withOpacity(0.12)),
-          
-          SafeArea(
+
+          // 2. Scroll and Buttons (Centered)
+          Center(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // Since app is landscape-only, we mainly care about height for mobile vs tablet
-                final isCompactHeight = constraints.maxHeight < 500;
+                // Ensure the scroll fits within both width and height (scale reduced so it doesn't overflow)
+                double scrollHeight = constraints.maxHeight * 0.6;
+                double scrollWidth = scrollHeight * 1.4; // Scroll aspect ratio roughly 1.4:1
                 
-                final boardWidth = math.min(constraints.maxWidth * 0.85, 800.0);
-                final boardHeight = math.min(constraints.maxHeight * 0.85, 460.0);
-
-                final buttonWidth = isCompactHeight ? boardWidth * 0.35 : 260.0;
-                final buttonHeight = isCompactHeight ? 42.0 : 56.0;
-                final gap = isCompactHeight ? 12.0 : 20.0;
-
-                return Stack(
-                  alignment: Alignment.center,
-                  clipBehavior: Clip.none,
-                  children: [
-                    // --- SCATTERED DECORATIONS ON THE TABLE (UNDER THE BOARD) ---
-                    
-                    // 1. Top-Left: Scattered cards sticking out
-                    Positioned(
-                      left: isCompactHeight ? constraints.maxWidth * 0.02 : 10,
-                      top: isCompactHeight ? constraints.maxHeight * 0.05 : 20,
-                      child: Transform.rotate(
-                        angle: -0.3,
-                        child: Container(
-                          width: isCompactHeight ? 60 : 90,
-                          height: isCompactHeight ? 90 : 130,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 6,
-                                offset: const Offset(1, 3),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.asset(
-                              'assets/action_card/Action Cards-Back.png',
-                              fit: BoxFit.cover,
-                            ),
-                          ),
+                if (scrollWidth > constraints.maxWidth * 0.75) {
+                  scrollWidth = constraints.maxWidth * 0.75;
+                  scrollHeight = scrollWidth / 1.4;
+                }
+                
+                final double buttonWidth = scrollWidth * 0.45; // Made buttons smaller
+                final double gap = scrollHeight * 0.025; // Smaller gap
+                
+                return SizedBox(
+                  width: scrollWidth,
+                  height: scrollHeight + (scrollHeight * 0.15), // Extra space for banner
+                  child: Stack(
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Scroll Background
+                      Positioned(
+                        top: scrollHeight * 0.15,
+                        child: Image.asset(
+                          _scrollPath,
+                          width: scrollWidth,
+                          height: scrollHeight,
+                          fit: BoxFit.fill,
+                          filterQuality: FilterQuality.high,
                         ),
                       ),
-                    ),
-                    
-                    Positioned(
-                      left: isCompactHeight ? constraints.maxWidth * 0.01 : -10,
-                      top: isCompactHeight ? constraints.maxHeight * 0.12 : 80,
-                      child: Transform.rotate(
-                        angle: 0.15,
-                        child: Container(
-                          width: isCompactHeight ? 60 : 85,
-                          height: isCompactHeight ? 85 : 120,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 6,
-                                offset: const Offset(1, 3),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.asset(
-                              'assets/eco_crisis_card/Eco Crisis Card-Europe-Back.png',
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // 2. Bottom-Right: Character sheet sticking out
-                    Positioned(
-                      right: isCompactHeight ? constraints.maxWidth * 0.02 : 10,
-                      bottom: isCompactHeight ? constraints.maxHeight * 0.05 : 10,
-                      child: Transform.rotate(
-                        angle: 0.12,
-                        child: Container(
-                          width: isCompactHeight ? 80 : 120,
-                          height: isCompactHeight ? 110 : 160,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.25),
-                                blurRadius: 8,
-                                offset: const Offset(2, 4),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: Image.asset(
-                              'assets/character/Character Sheet-Policymaker.png',
-                              fit: BoxFit.cover,
-                              errorBuilder: (c, e, s) => Container(color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // 3. Scattered Tokens
-                    // Positioned(
-                    //   right: isCompactHeight ? constraints.maxWidth * 0.08 : 60,
-                    //   bottom: isCompactHeight ? constraints.maxHeight * 0.02 : 5,
-                    //   child: Transform.rotate(
-                    //     angle: -0.2,
-                    //     child: SizedBox(
-                    //       width: isCompactHeight ? 28 : 40,
-                    //       height: isCompactHeight ? 28 : 40,
-                    //       child: Image.asset(
-                    //         'assets/token/sustainable.png',
-                    //         fit: BoxFit.contain,
-                    //       ),
-                    //     ),
-                    //   ),
-                    // ),
-
-                    Positioned(
-                      left: isCompactHeight ? constraints.maxWidth * 0.10 : 60,
-                      top: isCompactHeight ? constraints.maxHeight * 0.02 : 5,
-                      child: Transform.rotate(
-                        angle: 0.4,
-                        child: SizedBox(
-                          width: isCompactHeight ? 26 : 38,
-                          height: isCompactHeight ? 26 : 38,
-                          child: Image.asset(
-                            'assets/token/crisis.png',
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
-                    ),
-                    
-                    // --- MAIN GREEN FELT BOARD ---
-                    Center(
-                      child: SizedBox(
-                        width: boardWidth,
-                        height: boardHeight,
-                        child: Stack(
-                          clipBehavior: Clip.none,
+                      
+                      // Banner and Buttons Column
+                      Positioned(
+                        top: scrollHeight * 0.08, // Start slightly lower so it overlaps nicely
+                        left: 0,
+                        right: 0,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            // Felt board panel container
-                            Container(
-                              decoration: BoxDecoration(
-                                color: _feltColor,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: _borderColor,
-                                  width: 3.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.35),
-                                    blurRadius: 16,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                              child: Row(
-                                      children: [
-                                        // Left side: Action Card
-                                        Expanded(
-                                          flex: 4,
-                                          child: Center(
-                                            child: _buildActionCard(isCompactHeight),
-                                          ),
-                                        ),
-                                        // Right side: Mode Buttons
-                                        Expanded(
-                                          flex: 6,
-                                          child: Center(
-                                            child: SingleChildScrollView(
-                                              physics: const BouncingScrollPhysics(),
-                                              child: _buildDifficultyButtons(
-                                                context: context,
-                                                buttonWidth: buttonWidth,
-                                                buttonHeight: buttonHeight,
-                                                gap: gap,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                            // Banner
+                            Image.asset(
+                              _bannerPath,
+                              width: scrollWidth * 0.55, // Made banner smaller
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
                             ),
+                            SizedBox(height: gap * 2.0),
                             
-                            // Circular Back Button overlay (top-left) - Replaces Bell Button
-                            Positioned(
-                              left: -14,
-                              top: -14,
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: () => Navigator.of(context).pop(),
-                                  borderRadius: BorderRadius.circular(100),
-                                  child: Container(
-                                    width: isCompactHeight ? 44 : 64,
-                                    height: isCompactHeight ? 44 : 64,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: _feltColor,
-                                      border: Border.all(
-                                        color: _borderColor,
-                                        width: 3.5,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.3),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Icon(
-                                      Icons.arrow_back_rounded,
-                                      color: Colors.white,
-                                      size: isCompactHeight ? 24 : 32,
-                                    ),
-                                  ),
-                                ),
-                              ),
+                            // Easy Button
+                            _buildImageButton(
+                              _easyPath,
+                              () => _selectDifficulty(context, 'easy'),
+                              buttonWidth,
+                            ),
+                            SizedBox(height: gap),
+                            
+                            // Medium Button
+                            _buildImageButton(
+                              _mediumPath,
+                              () => _selectDifficulty(context, 'normal'),
+                              buttonWidth,
+                            ),
+                            SizedBox(height: gap),
+                            
+                            // Hard Button
+                            _buildImageButton(
+                              _hardPath,
+                              () => _selectDifficulty(context, 'hard'),
+                              buttonWidth,
+                            ),
+                            SizedBox(height: gap),
+                            
+                            // Multiplayer Button
+                            _buildImageButton(
+                              _multiplayerPath,
+                              () => _selectMultiplayer(context, 'normal'),
+                              buttonWidth,
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 );
               },
             ),
           ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildActionCard(bool isCompactHeight) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        // Main action card image
-        Transform.rotate(
-          angle: -0.05,
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.35),
-                  blurRadius: 10,
-                  offset: const Offset(2, 6),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
+          // 3. Foreground Grass framing the bottom
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: -10, // Slight negative offset to ensure it covers the bottom edge completely
+            child: IgnorePointer(
               child: Image.asset(
-                'assets/action_card/3.png',
-                fit: BoxFit.contain,
-                height: isCompactHeight ? 180 : 260,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    width: isCompactHeight ? 120 : 180,
-                    height: isCompactHeight ? 180 : 260,
-                    color: Colors.white.withOpacity(0.9),
-                    padding: const EdgeInsets.all(12),
-                    child: Center(
-                      child: Text(
-                        'Card 3 Not Found',
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.montserrat(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black54,
-                        ),
+                _grassPath,
+                fit: BoxFit.fitWidth,
+                alignment: Alignment.bottomCenter,
+                filterQuality: FilterQuality.high,
+              ),
+            ),
+          ),
+
+          // 4. Back Button (Top Left)
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => Navigator.of(context).pop(),
+                    borderRadius: BorderRadius.circular(100),
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFD54F), // Yellow matching the prototype UI buttons
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.black, width: 3),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black54,
+                            blurRadius: 0,
+                            offset: Offset(2, 4),
+                          )
+                        ]
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: Colors.black,
+                        size: 28,
                       ),
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
             ),
           ),
-        ),
-        // Overlapping blue "+1" difficulty token (top-right of card)
-        Positioned(
-          right: -10,
-          top: -15,
-          child: Transform.rotate(
-            angle: 0.15,
-            child: SizedBox(
-              width: isCompactHeight ? 32 : 44,
-              height: isCompactHeight ? 32 : 44,
-              child: Image.asset(
-                'assets/token/Difficulty+1 Token.png',
-                fit: BoxFit.contain,
-                errorBuilder: (c, e, s) => const SizedBox.shrink(),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ModeChoiceButton extends StatelessWidget {
-  final String label;
-  final double width;
-  final double height;
-  final VoidCallback onTap;
-  final Color buttonColor;
-  final Color borderColor;
-  final Color textColor;
-
-  const _ModeChoiceButton({
-    required this.label,
-    required this.width,
-    required this.height,
-    required this.onTap,
-    required this.buttonColor,
-    required this.borderColor,
-    this.textColor = Colors.black,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(51),
-        child: Container(
-          width: width,
-          height: height,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: buttonColor,
-            borderRadius: BorderRadius.circular(51),
-            border: Border.all(color: borderColor, width: 3),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.20),
-                blurRadius: 0,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.montserrat(
-              color: textColor,
-              fontSize: height < 50 ? 18 : 22,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.6,
-              height: 1,
-            ),
-          ),
-        ),
+        ],
       ),
     );
   }

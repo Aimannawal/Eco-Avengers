@@ -89,7 +89,7 @@ class _ProfileDialogState extends State<ProfileDialog>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Tidak bisa membuka galeri: $e\nPastikan izin galeri sudah diberikan.'),
+            content: Text('Cannot open gallery: $e\nMake sure gallery permission has been granted.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -102,7 +102,7 @@ class _ProfileDialogState extends State<ProfileDialog>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Tidak ada foto dipilih. Pastikan izin akses galeri sudah diizinkan di pengaturan HP.'),
+            content: Text('No photo selected. Make sure gallery access permission is enabled in your device settings.'),
             backgroundColor: Colors.orange,
             duration: Duration(seconds: 4),
           ),
@@ -126,7 +126,7 @@ class _ProfileDialogState extends State<ProfileDialog>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Pengeditan foto dibatalkan'),
+            content: Text('Photo editing cancelled'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -140,14 +140,14 @@ class _ProfileDialogState extends State<ProfileDialog>
       if (url == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gagal mengunggah foto. Cek koneksi internet & pastikan Storage Policy Supabase sudah dibuat.'),
+            content: Text('Failed to upload photo. Check your internet connection & make sure the Supabase Storage Policy has been set up.'),
             backgroundColor: Colors.red,
             duration: Duration(seconds: 5),
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Foto profil berhasil diubah! ✓'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Profile photo updated! ✓'), backgroundColor: Colors.green),
         );
       }
     }
@@ -173,7 +173,7 @@ class _ProfileDialogState extends State<ProfileDialog>
       if (res['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Profil berhasil diperbarui!'),
+            content: Text('Profile updated successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -231,30 +231,69 @@ class _ProfileDialogState extends State<ProfileDialog>
             // Header & Tabs
             Container(
               decoration: const BoxDecoration(
-                color: Color(0xFF4A6741),
+                gradient: LinearGradient(
+                  colors: [Color(0xFF5AB6F5), Color(0xFF3898EC)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(21)),
+                border: Border(bottom: BorderSide(color: Color(0xFF111111), width: 2.5)),
               ),
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 16, 16, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 14, 12, 0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'PLAYER PROFILE',
-                          style: GoogleFonts.montserrat(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 1.2,
-                          ),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF5C842),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFF111111), width: 2),
+                              ),
+                              child: const Icon(
+                                Icons.person_rounded,
+                                size: 18,
+                                color: Color(0xFF111111),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'PLAYER PROFILE',
+                              style: GoogleFonts.fredoka(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 1.0,
+                                shadows: const [
+                                  Shadow(
+                                    color: Color(0xFF1963A0),
+                                    offset: Offset(0, 2),
+                                    blurRadius: 1,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                         IconButton(
                           onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(
-                            Icons.close_rounded,
-                            color: Colors.white70,
+                          icon: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white60, width: 1.5),
+                            ),
+                            child: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
                           ),
                         ),
                       ],
@@ -262,13 +301,18 @@ class _ProfileDialogState extends State<ProfileDialog>
                   ),
                   TabBar(
                     controller: _tabController,
-                    indicatorColor: const Color(0xFFA5C18A),
+                    indicatorColor: const Color(0xFFF5C842),
                     indicatorWeight: 4,
-                    labelColor: Colors.white,
-                    unselectedLabelColor: Colors.white54,
-                    labelStyle: GoogleFonts.montserrat(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
+                    labelColor: const Color(0xFFF5C842),
+                    unselectedLabelColor: Colors.white70,
+                    labelStyle: GoogleFonts.fredoka(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      letterSpacing: 0.8,
+                    ),
+                    unselectedLabelStyle: GoogleFonts.fredoka(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 14,
                     ),
                     tabs: const [
                       Tab(text: 'OVERVIEW'),
@@ -285,7 +329,7 @@ class _ProfileDialogState extends State<ProfileDialog>
               child: _isLoading
                   ? const Center(
                       child: CircularProgressIndicator(
-                        color: Color(0xFF4A6741),
+                        color: Color(0xFF3898EC),
                       ),
                     )
                   : TabBarView(
@@ -314,32 +358,53 @@ class _ProfileDialogState extends State<ProfileDialog>
             child: Stack(
               alignment: Alignment.center,
               children: [
-                UserAvatar(
-                  avatarUrl: _profile?.avatarUrl,
-                  name: _profile?.displayName ?? '?',
-                  radius: 50.0,
-                  fontSize: 40.0,
-                  borderWidth: 2.0,
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF111111), width: 3),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x33000000),
+                        offset: Offset(0, 4),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: UserAvatar(
+                    avatarUrl: _profile?.avatarUrl,
+                    name: _profile?.displayName ?? '?',
+                    radius: 48.0,
+                    fontSize: 38.0,
+                    borderWidth: 2.0,
+                  ),
                 ),
                 if (_isUploading)
-                  const CircularProgressIndicator(color: Color(0xFF4A6741)),
+                  const CircularProgressIndicator(color: Color(0xFF3898EC)),
                 Positioned(
-                  bottom: 0,
-                  right: 0,
+                  bottom: 2,
+                  right: 2,
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFA5C18A),
+                      color: const Color(0xFFF5C842),
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: const Color(0xFF111111),
-                        width: 1.5,
+                        width: 2,
                       ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0xFF8B6914),
+                          offset: Offset(0, 2),
+                          blurRadius: 0,
+                        ),
+                      ],
                     ),
                     child: const Icon(
                       Icons.camera_alt_rounded,
                       size: 16,
-                      color: Colors.black,
+                      color: Color(0xFF111111),
                     ),
                   ),
                 ),
@@ -350,9 +415,9 @@ class _ProfileDialogState extends State<ProfileDialog>
           // Name & Bio
           Text(
             _profile?.displayName ?? 'Player',
-            style: GoogleFonts.montserrat(
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
+            style: GoogleFonts.fredoka(
+              fontSize: 23,
+              fontWeight: FontWeight.w700,
             ),
           ),
           if (_profile?.country != null && _profile!.country!.isNotEmpty)
@@ -369,9 +434,10 @@ class _ProfileDialogState extends State<ProfileDialog>
                   const SizedBox(width: 4),
                   Text(
                     _profile!.country!,
-                    style: GoogleFonts.montserrat(
+                    style: GoogleFonts.outfit(
                       color: Colors.black54,
                       fontWeight: FontWeight.w600,
+                      fontSize: 13,
                     ),
                   ),
                 ],
@@ -379,18 +445,19 @@ class _ProfileDialogState extends State<ProfileDialog>
             ),
           if (_profile?.bio != null && _profile!.bio!.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 12),
+              padding: const EdgeInsets.only(top: 10),
               child: Text(
                 '"${_profile!.bio!}"',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.montserrat(
+                style: GoogleFonts.outfit(
                   fontStyle: FontStyle.italic,
                   color: Colors.black87,
                   fontSize: 13,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
             ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
           // Stats Row
           Row(
             children: [
@@ -419,34 +486,35 @@ class _ProfileDialogState extends State<ProfileDialog>
             padding: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFFFFD700).withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: const Color(0xFFFFD700).withOpacity(0.5),
-                width: 1.5,
+                color: const Color(0xFFFFD700).withOpacity(0.6),
+                width: 2,
               ),
             ),
             child: Column(
               children: [
                 Text(
                   'BEST SCORE',
-                  style: GoogleFonts.montserrat(
+                  style: GoogleFonts.outfit(
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     color: const Color(0xFFB8860B),
+                    letterSpacing: 0.8,
                   ),
                 ),
                 Text(
                   '${_profile?.bestScore ?? 0}',
-                  style: GoogleFonts.montserrat(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
+                  style: GoogleFonts.fredoka(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w700,
                     color: const Color(0xFFB8860B),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -454,16 +522,18 @@ class _ProfileDialogState extends State<ProfileDialog>
               icon: const Icon(FeatherIcons.logOut, color: Color(0xFFEB5757)),
               label: Text(
                 'LOGOUT',
-                style: GoogleFonts.montserrat(
-                  fontWeight: FontWeight.bold,
+                style: GoogleFonts.fredoka(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
                   color: const Color(0xFFEB5757),
+                  letterSpacing: 0.8,
                 ),
               ),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 side: const BorderSide(color: Color(0xFFEB5757), width: 2),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
@@ -517,9 +587,9 @@ class _ProfileDialogState extends State<ProfileDialog>
             const SizedBox(height: 4),
             Text(
               value,
-              style: GoogleFonts.montserrat(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
+              style: GoogleFonts.fredoka(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
                 color: color,
                 height: 1.1,
               ),
@@ -527,9 +597,9 @@ class _ProfileDialogState extends State<ProfileDialog>
             const SizedBox(height: 2),
             Text(
               label,
-              style: GoogleFonts.montserrat(
-                fontSize: 8.5,
-                fontWeight: FontWeight.w800,
+              style: GoogleFonts.outfit(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w700,
                 color: Colors.black54,
                 letterSpacing: 0.5,
               ),
@@ -550,10 +620,11 @@ class _ProfileDialogState extends State<ProfileDialog>
           children: [
             Text(
               'EDIT PROFILE',
-              style: GoogleFonts.montserrat(
+              style: GoogleFonts.outfit(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
                 color: Colors.black45,
+                letterSpacing: 0.8,
               ),
             ),
             const SizedBox(height: 16),
@@ -583,12 +654,14 @@ class _ProfileDialogState extends State<ProfileDialog>
               child: ElevatedButton(
                 onPressed: _isSaving ? null : _saveProfile,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFA5C18A),
+                  backgroundColor: const Color(0xFFF5C842),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  side: const BorderSide(color: Color(0xFF111111), width: 2),
+                  elevation: 0,
+                  side: const BorderSide(color: Color(0xFF111111), width: 2.5),
+                  shadowColor: const Color(0xFF8B6914),
                 ),
                 child: _isSaving
                     ? const SizedBox(
@@ -596,14 +669,15 @@ class _ProfileDialogState extends State<ProfileDialog>
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.black,
+                          color: Color(0xFF111111),
                         ),
                       )
                     : Text(
                         'SAVE CHANGES',
-                        style: GoogleFonts.montserrat(
-                          fontWeight: FontWeight.w900,
-                          color: Colors.black,
+                        style: GoogleFonts.fredoka(
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF111111),
+                          fontSize: 16,
                           letterSpacing: 1,
                         ),
                       ),
@@ -626,14 +700,14 @@ class _ProfileDialogState extends State<ProfileDialog>
       controller: controller,
       maxLines: maxLines,
       validator: validator,
-      style: GoogleFonts.montserrat(fontSize: 14, fontWeight: FontWeight.w600),
+      style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF4A6741)),
-        labelStyle: GoogleFonts.montserrat(
+        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF3898EC)),
+        labelStyle: GoogleFonts.outfit(
           fontSize: 13,
           color: Colors.black54,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w500,
         ),
         filled: true,
         fillColor: Colors.white,
@@ -650,7 +724,7 @@ class _ProfileDialogState extends State<ProfileDialog>
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF4A6741), width: 2),
+          borderSide: const BorderSide(color: Color(0xFF3898EC), width: 2),
         ),
       ),
     );
@@ -666,7 +740,7 @@ class _ProfileDialogState extends State<ProfileDialog>
             const SizedBox(height: 16),
             Text(
               'Belum ada riwayat main',
-              style: GoogleFonts.montserrat(
+              style: GoogleFonts.outfit(
                 fontSize: 14,
                 color: Colors.black45,
                 fontWeight: FontWeight.w600,
@@ -760,28 +834,28 @@ class _ProfileDialogState extends State<ProfileDialog>
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: color.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(4),
+                            borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
                             isWin ? 'WIN' : 'LOSS',
-                            style: GoogleFonts.montserrat(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
+                            style: GoogleFonts.fredoka(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
                               color: color,
-                              letterSpacing: 0.5,
+                              letterSpacing: 0.8,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             '${game.character ?? 'Unknown'} · ${game.region ?? '?'}',
-                            style: GoogleFonts.montserrat(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
+                            style: GoogleFonts.outfit(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                               color: Colors.black87,
                             ),
                             overflow: TextOverflow.ellipsis,
@@ -798,15 +872,15 @@ class _ProfileDialogState extends State<ProfileDialog>
                               : FeatherIcons.user,
                           size: 13,
                           color: game.mode == 'multiplayer'
-                              ? const Color(0xFF4A6741)
+                              ? const Color(0xFF3898EC)
                               : const Color(0xFF8D6E63),
                         ),
                         const SizedBox(width: 4),
                         Text(
                           '${game.difficulty ?? "Normal"} · Score: ${game.score}',
-                          style: GoogleFonts.montserrat(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                          style: GoogleFonts.outfit(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
                             color: Colors.black54,
                           ),
                         ),
@@ -815,9 +889,9 @@ class _ProfileDialogState extends State<ProfileDialog>
                     const SizedBox(height: 2),
                     Text(
                       timeAgo,
-                      style: GoogleFonts.montserrat(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
+                      style: GoogleFonts.outfit(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w400,
                         color: Colors.black38,
                       ),
                     ),
@@ -876,11 +950,11 @@ class _ProfileDialogState extends State<ProfileDialog>
                       ),
                       child: Text(
                         isWin ? 'VICTORY' : 'DEFEAT',
-                        style: GoogleFonts.montserrat(
+                        style: GoogleFonts.fredoka(
                           fontSize: 14,
-                          fontWeight: FontWeight.w900,
+                          fontWeight: FontWeight.w600,
                           color: Colors.white,
-                          letterSpacing: 1,
+                          letterSpacing: 1.0,
                         ),
                       ),
                     ),
@@ -917,9 +991,9 @@ class _ProfileDialogState extends State<ProfileDialog>
                         const SizedBox(height: 16),
                         Text(
                           game.character ?? 'Unknown Character',
-                          style: GoogleFonts.montserrat(
+                          style: GoogleFonts.fredoka(
                             fontSize: 20,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                             color: Colors.black87,
                           ),
                         ),
@@ -931,7 +1005,7 @@ class _ProfileDialogState extends State<ProfileDialog>
                           'Mode',
                           game.mode == 'multiplayer' ? 'Multiplayer' : 'Singleplayer',
                         ),
-                        _detailRow(Icons.emoji_events_rounded, 'Score', '${game.score} pts', valueColor: const Color(0xFF4A6741)),
+                        _detailRow(Icons.emoji_events_rounded, 'Score', '${game.score} pts', valueColor: const Color(0xFFF59E0B)),
                         _detailRow(Icons.calendar_today_rounded, 'Played', _formatDate(game.playedAt)),
                       ],
                     ),
@@ -954,16 +1028,16 @@ class _ProfileDialogState extends State<ProfileDialog>
           const SizedBox(width: 10),
           Text(
             label,
-            style: GoogleFonts.montserrat(
+            style: GoogleFonts.outfit(
               fontSize: 13,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
               color: Colors.black54,
             ),
           ),
           const Spacer(),
           Text(
             value,
-            style: GoogleFonts.montserrat(
+            style: GoogleFonts.outfit(
               fontSize: 13,
               fontWeight: FontWeight.w800,
               color: valueColor ?? Colors.black87,

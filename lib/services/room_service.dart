@@ -74,13 +74,13 @@ class RoomService {
         .maybeSingle();
 
     if (roomData == null) {
-      throw Exception('Room dengan kode "$roomCode" tidak ditemukan.');
+      throw Exception('Room with code "$roomCode" not found.');
     }
 
     final room = GameRoom.fromMap(roomData);
 
     if (room.status != AppConstants.statusWaiting) {
-      throw Exception('Room sudah mulai bermain, tidak bisa join.');
+      throw Exception('Game already started, cannot join.');
     }
 
     // Cek jumlah player saat ini
@@ -90,7 +90,7 @@ class RoomService {
         .eq('room_id', room.id);
 
     if (playersData.length >= room.maxPlayers) {
-      throw Exception('Room sudah penuh (maks ${room.maxPlayers} pemain).');
+      throw Exception('Room is full (max ${room.maxPlayers} players).');
     }
 
     // Cek apakah player sudah ada di room (re-join)

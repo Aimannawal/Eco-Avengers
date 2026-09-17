@@ -19,6 +19,12 @@ class WinProfileDialog extends StatefulWidget {
   final String difficulty;
   final String mode;
   final Map<String, int> badges;
+  final int score;
+  final int? iconTokensCount;
+  final int? masterTokensCount;
+  final int? remainingCardsCount;
+  final int? blanksCount;
+  final int? failedCardsCount;
   final VoidCallback onDone;
 
   const WinProfileDialog({
@@ -30,6 +36,12 @@ class WinProfileDialog extends StatefulWidget {
     required this.difficulty,
     required this.mode,
     required this.badges,
+    required this.score,
+    this.iconTokensCount,
+    this.masterTokensCount,
+    this.remainingCardsCount,
+    this.blanksCount,
+    this.failedCardsCount,
     required this.onDone,
   }) : super(key: key);
 
@@ -52,11 +64,6 @@ class _WinProfileDialogState extends State<WinProfileDialog>
 
   late final AnimationController _animController;
   late final Animation<double> _scaleAnim;
-
-  int get _score =>
-      widget.winCount * 100 +
-      widget.badges.values.fold(0, (a, b) => a + b) * 50 -
-      widget.loseCount * 10;
 
   @override
   void initState() {
@@ -103,7 +110,7 @@ class _WinProfileDialogState extends State<WinProfileDialog>
         result: 'win',
         winCount: widget.winCount,
         loseCount: widget.loseCount,
-        score: _score.clamp(0, 999999),
+        score: widget.score.clamp(0, 999999),
         badges: widget.badges,
       );
 
@@ -279,10 +286,46 @@ class _WinProfileDialogState extends State<WinProfileDialog>
                         const SizedBox(width: 8),
                         _statBox('LOSE', '${widget.loseCount}', const Color(0xFFEB5757)),
                         const SizedBox(width: 8),
-                        _statBox('SCORE', '${_score.clamp(0, 99999)}', _darkGreen),
+                        _statBox('SCORE', '${widget.score.clamp(0, 99999)}', _darkGreen),
                       ],
                     ),
                   ),
+
+                  // Score Breakdown (Rules from prototype)
+                  if (widget.iconTokensCount != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.black12, width: 1.5),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'SCORE BREAKDOWN',
+                              style: GoogleFonts.montserrat(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: _darkGreen,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            _scoreRow('Professional Icon Tokens', '${widget.iconTokensCount} tokens', '+${widget.iconTokensCount! * 10}', const Color(0xFF2E7D32)),
+                            if ((widget.masterTokensCount ?? 0) > 0)
+                              _scoreRow('Professional Master Tokens', '${widget.masterTokensCount} tokens', '+${widget.masterTokensCount! * 30}', const Color(0xFF2E7D32)),
+                            _scoreRow('Action Cards in Hand', '${widget.remainingCardsCount ?? 0} cards', '+${(widget.remainingCardsCount ?? 0) * 10}', const Color(0xFF2E7D32)),
+                            _scoreRow('Blanks between Crisis & Sustain', '${widget.blanksCount ?? 0} blanks', '+${(widget.blanksCount ?? 0) * 10}', const Color(0xFF2E7D32)),
+                            if ((widget.failedCardsCount ?? 0) > 0)
+                              _scoreRow('Failed Eco Crisis Cards', '${widget.failedCardsCount} failed', '-${(widget.failedCardsCount ?? 0) * 10}', const Color(0xFFC0392B)),
+                          ],
+                        ),
+                      ),
+                    ),
 
                   // Badges
                   if (hasBadges)
@@ -418,4 +461,55 @@ class _WinProfileDialogState extends State<WinProfileDialog>
       ),
     );
   }
+
+  Widget _scoreRow(String label, String detail, String points, Color pointsColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.montserrat(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+                Text(
+                  detail,
+                  style: GoogleFonts.montserrat(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: pointsColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: pointsColor.withOpacity(0.3)),
+            ),
+            child: Text(
+              points,
+              style: GoogleFonts.montserrat(
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                color: pointsColor,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+

@@ -4,12 +4,13 @@
 // Inisialisasi sekali di main.dart, lalu pakai di seluruh app.
 // ============================================================
 
+import 'dart:math' as math;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../core/constants/supabase_constants.dart';
-import '../../core/constants/app_constants.dart';
+import '../core/constants/supabase_constants.dart';
+import '../core/constants/app_constants.dart';
 
 class SupabaseService {
   SupabaseService._();
@@ -62,15 +63,10 @@ class SupabaseService {
   /// Generate kode room random 6 huruf kapital
   static String generateRoomCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final random = DateTime.now().millisecondsSinceEpoch;
-    final uuid = const Uuid().v4();
-    final seed = (random + uuid.hashCode).abs();
-    final buffer = StringBuffer();
-    var r = seed;
-    for (int i = 0; i < AppConstants.roomCodeLength; i++) {
-      buffer.write(chars[r % chars.length]);
-      r = (r * 6364136223846793005 + 1442695040888963407) & 0xFFFFFFFFFFFFFFFF;
-    }
-    return buffer.toString();
+    final random = math.Random();
+    return List.generate(
+      AppConstants.roomCodeLength,
+      (_) => chars[random.nextInt(chars.length)],
+    ).join();
   }
 }

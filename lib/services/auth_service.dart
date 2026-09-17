@@ -55,22 +55,33 @@ class AuthService {
           'p_pin_hash': pinHash,
           'p_display_name': displayName,
         },
-      );
+      ).timeout(const Duration(seconds: 15), onTimeout: () {
+        throw 'Koneksi ke server timeout (Supabase mungkin sedang sleep/offline). Silakan coba lagi.';
+      });
 
-      final Map<String, dynamic> result = Map<String, dynamic>.from(response);
+      Map<String, dynamic> result;
+      if (response is List && response.isNotEmpty) {
+        result = Map<String, dynamic>.from(response.first);
+      } else {
+        result = Map<String, dynamic>.from(response as Map);
+      }
 
       if (result['success'] == true) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_prefUsername, username);
         await SupabaseService.instance.savePlayerName(displayName);
         // Also ensure playerId is stored if not already
-        await prefs.setString('player_id', result['player_id']);
+        if (result['player_id'] != null) {
+          await prefs.setString('player_id', result['player_id'].toString());
+        } else {
+          await prefs.setString('player_id', playerId);
+        }
         return {'success': true};
       } else {
         return {'success': false, 'error': result['error']};
       }
     } catch (e) {
-      return {'success': false, 'error': 'Gagal register: $e'};
+      return {'success': false, 'error': 'Registration failed: $e'};
     }
   }
 
@@ -88,24 +99,35 @@ class AuthService {
           'p_username': username,
           'p_pin_hash': pinHash,
         },
-      );
+      ).timeout(const Duration(seconds: 15), onTimeout: () {
+        throw 'Koneksi ke server timeout (Supabase mungkin sedang sleep/offline). Silakan coba lagi.';
+      });
 
-      final Map<String, dynamic> result = Map<String, dynamic>.from(response);
+      Map<String, dynamic> result;
+      if (response is List && response.isNotEmpty) {
+        result = Map<String, dynamic>.from(response.first);
+      } else {
+        result = Map<String, dynamic>.from(response as Map);
+      }
 
       if (result['success'] == true) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_prefUsername, username);
-        await SupabaseService.instance.savePlayerName(result['display_name']);
-        await prefs.setString('player_id', result['player_id']);
+        if (result['display_name'] != null) {
+          await SupabaseService.instance.savePlayerName(result['display_name'].toString());
+        }
+        if (result['player_id'] != null) {
+          await prefs.setString('player_id', result['player_id'].toString());
+        }
         if (result['avatar_url'] != null) {
-          await prefs.setString(_prefAvatarUrl, result['avatar_url']);
+          await prefs.setString(_prefAvatarUrl, result['avatar_url'].toString());
         }
         return {'success': true};
       } else {
         return {'success': false, 'error': result['error']};
       }
     } catch (e) {
-      return {'success': false, 'error': 'Gagal login: $e'};
+      return {'success': false, 'error': 'Login failed: $e'};
     }
   }
 
@@ -198,7 +220,7 @@ class AuthService {
       
       return {'success': true};
     } catch (e) {
-      return {'success': false, 'error': 'Gagal update profil: $e'};
+      return {'success': false, 'error': 'Failed to update profile: $e'};
     }
   }
 }

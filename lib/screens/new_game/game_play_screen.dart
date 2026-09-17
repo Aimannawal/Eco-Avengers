@@ -5,18 +5,20 @@ import 'package:feather_icons/feather_icons.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../models/game_models.dart';
 import '../../models/room_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/game_state_service.dart';
 import '../../services/leaderboard_service.dart';
+import '../../services/room_service.dart';
 import '../../services/supabase_service.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/background_decoration.dart';
 import 'character_selection_page.dart';
 import 'character_sheet_dialog.dart';
 import 'interactive_map_dialog.dart';
 import 'spin_wheel_dialog.dart';
+import 'post_spin_dialog.dart';
 import 'win_profile_dialog.dart';
 
 class GamePlayScreen extends StatefulWidget {
@@ -63,10 +65,10 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   static const String _peaceTokenAssetPath = 'assets/token/sustainable.png';
   static const List<String> _actionCardAssets = [
     'assets/action_card/1.png',
-    'assets/action_card/2.png',
+    // card 2 removed
     'assets/action_card/3.png',
     'assets/action_card/4.png',
-    'assets/action_card/5.png',
+    // card 5 removed
     'assets/action_card/6.png',
     'assets/action_card/7.png',
     'assets/action_card/8.png',
@@ -91,9 +93,11 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   bool _isMyTurn = false;
   RealtimeChannel? _gameStateChannel;
   int _policymakerBuff = 0; // +1 dice buff from adjacent Policymaker
+  int _lastProcessedActionLogLength = 0;
   // Region selection tracking for multiplayer initial map selection
   bool _hasPickedInitialRegion = false;
   bool _isInitialMapDialogOpen = false;
+
   /// Guard flag: prevents showing game-over dialog more than once
   bool _gameOverShown = false;
 
@@ -106,7 +110,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     'Central & South America': ['North America', 'Africa'],
     'Europe': ['North America', 'Africa', 'Asia'],
     'Africa': ['Central & South America', 'Europe', 'Asia'],
-    'Asia': ['Europe', 'Africa'],
+    'Asia': ['Europe', 'Africa', 'Oceania'],
+    'Oceania': ['Asia'],
   };
 
   String _boardCharacterAssetPath(String characterName) {
@@ -225,16 +230,19 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       roomId: widget.multiplayerRoomId!,
       onUpdate: _onGameStateUpdated,
     );
-    
+
     // Sync initial hand cards to multiplayer state
-    GameStateService.instance.syncPlayerHandCards(
-      roomId: widget.multiplayerRoomId!,
-      playerId: _myPlayerId,
-      handCards: gameRound.handCards,
-    ).catchError((_) {
-      // Silently fail if sync doesn't work
-    });
-    
+    GameStateService.instance
+        .syncPlayerHandCards(
+          roomId: widget.multiplayerRoomId!,
+          playerId: _myPlayerId,
+          handCards: gameRound.handCards,
+        )
+        .catchError((_) {
+          // Silently fail if sync doesn't work
+          return _mpGameState!;
+        });
+
     // Show map for initial region selection in multiplayer
     // Only show if not all players have already selected regions
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -254,6 +262,92 @@ class _GamePlayScreenState extends State<GamePlayScreen>
 
   void _onGameStateUpdated(MultiplayerGameState state) {
     if (!mounted) return;
+
+    // ── Check for incoming card shares & consumed teammate cards ───
+    final newLog = state.actionLog;
+    final startIdx = math.min(_lastProcessedActionLogLength, newLog.length);
+    if (newLog.length > startIdx) {
+      final newEntries = newLog.sublist(startIdx);
+      _lastProcessedActionLogLength = newLog.length;
+      for (final entry in newEntries) {
+        if (entry['type'] == 'card_share' &&
+            entry['to_player_id'] == _myPlayerId) {
+          final card = entry['card'] as String?;
+          if (card != null && !gameRound.handCards.contains(card)) {
+            final senderName = entry['from_name'] as String? ?? 'teammate';
+            gameRound.handCards.add(card);
+            // notify user
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '🎁 $senderName sent you a card!',
+                      style: GoogleFonts.montserrat(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    backgroundColor: const Color(0xFF4A6741),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            });
+          }
+        } else if (entry['type'] == 'friend_card_used' &&
+            entry['from_player_id'] == _myPlayerId) {
+          final card = entry['card'] as String?;
+          final byName = entry['by_name'] as String? ?? 'Rekan';
+          final targetNum = card != null ? _cardNumber(card) : 0;
+          final remaining = entry['remaining_cards'] as List<dynamic>?;
+
+          // Hapus kartu teman yang telah terpakai dari tangan
+          if (remaining != null) {
+            gameRound.handCards = remaining.map((e) => e.toString()).toList();
+          } else {
+            final matchIdx = gameRound.handCards.indexWhere((c) =>
+                c == card ||
+                c.replaceAll('\\', '/') == card?.replaceAll('\\', '/') ||
+                (targetNum > 0 && _cardNumber(c) == targetNum));
+            if (matchIdx != -1) {
+              gameRound.handCards.removeAt(matchIdx);
+            }
+          }
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '🤝 $byName menggunakan kartu milikmu (#$targetNum) untuk menyelamatkan tim!',
+                    style: GoogleFonts.montserrat(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  backgroundColor: const Color(0xFF38A3A5),
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
+          });
+        } else if (entry['type'] == 'hand_cards_sync' &&
+            entry['player_id'] == _myPlayerId) {
+          final cards = (entry['cards'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList();
+          if (cards != null && cards.length < gameRound.handCards.length) {
+            gameRound.handCards = cards;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() {});
+            });
+          }
+        }
+      }
+    }
+
     setState(() {
       _mpGameState = state;
       // Sync SHARED game state only (energy, peace, token positions, round info)
@@ -282,8 +376,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted && !_gameOverShown) _showGameOverDialog(playerWon: true);
         });
-      } else if (_crisisTokenPosition >= 13) {
-        // Another player lost the game — show lose dialog for all players
+      } else if (_crisisTokenPosition >= _sustainableTokenPosition) {
+        // Planet Crisis caught up to Planet Sustain — game lost for all players
         Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted && !_gameOverShown) _showGameOverDialog(playerWon: false);
         });
@@ -321,7 +415,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     final allRegions = _mpGameState!.getAllPlayerRegions();
     int buff = 0;
     RoomPlayer? policymakerPlayer;
-    
+
     for (final player in _mpPlayers) {
       if (player.playerId == _myPlayerId) continue;
       if (player.characterName?.toLowerCase() == 'policymaker') {
@@ -333,7 +427,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         }
       }
     }
-    
+
     if (buff != _policymakerBuff) {
       setState(() => _policymakerBuff = buff);
       // Buff applies silently - no notification popup
@@ -365,12 +459,6 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       );
       if (freshState == null) return true;
       final regions = freshState.getAllPlayerRegions();
-      // Check if another player already took this region
-      for (final entry in regions.entries) {
-        if (entry.key != _myPlayerId && entry.value == region) {
-          return false; // Conflict!
-        }
-      }
       return true;
     } catch (_) {
       return true; // On error, allow selection
@@ -391,6 +479,274 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     );
   }
 
+  /// Sync badge unlock to Supabase action_log
+  Future<void> _syncBadgeToActionLog(String badgeType, int level) async {
+    if (!_isMultiplayer) return;
+    await GameStateService.instance.updateGameState(
+      widget.multiplayerRoomId!,
+      appendActionLog: {
+        'type': 'badge_unlock',
+        'player_id': _myPlayerId,
+        'badge': badgeType,
+        'level': level,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  /// Share a card to a teammate in multiplayer.
+  Future<void> _shareCard(String assetPath) async {
+    if (!_isMultiplayer || _mpPlayers.isEmpty) return;
+
+    // Get teammates (excluding self)
+    final teammates = _mpPlayers
+        .where((p) => p.playerId != _myPlayerId)
+        .toList();
+    if (teammates.isEmpty) return;
+
+    // Show teammate picker dialog
+    final chosenPlayer = await showDialog<RoomPlayer>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 320),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFAF7F2),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFF111111), width: 2.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Kirim Kartu ke Siapa?',
+                style: GoogleFonts.montserrat(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Kartu akan dipindahkan ke tangan mereka',
+                style: GoogleFonts.montserrat(
+                  fontSize: 11,
+                  color: Colors.black45,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...teammates.map((p) {
+                final name = p.playerName;
+                final charName = p.characterName ?? '';
+                return GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(p),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.black12),
+                    ),
+                    child: Row(
+                      children: [
+                        if (charName.isNotEmpty)
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.black12),
+                              image: DecorationImage(
+                                image: AssetImage(
+                                  'assets/vector/$charName Profile.png',
+                                ),
+                                fit: BoxFit.cover,
+                                alignment: const Alignment(0, -2),
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: const BoxDecoration(
+                              color: Colors.black12,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.person,
+                              size: 18,
+                              color: Colors.black38,
+                            ),
+                          ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: GoogleFonts.montserrat(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              if (charName.isNotEmpty)
+                                Text(
+                                  charName,
+                                  style: GoogleFonts.montserrat(
+                                    fontSize: 10,
+                                    color: Colors.black45,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.send_rounded,
+                          size: 18,
+                          color: Color(0xFF4A6741),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 4),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(null),
+                child: Text(
+                  'Batal',
+                  style: GoogleFonts.montserrat(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black45,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (chosenPlayer == null) return;
+
+    // Get my display name
+    final profile = await LeaderboardService.instance.getPlayerProfile(
+      _myPlayerId,
+    );
+    final myName = profile?.displayName ?? 'Teammate';
+
+    // Remove from my hand
+    setState(() => gameRound.handCards.remove(assetPath));
+
+    // Send via action_log
+    await GameStateService.instance.updateGameState(
+      widget.multiplayerRoomId!,
+      appendActionLog: {
+        'type': 'card_share',
+        'from_player_id': _myPlayerId,
+        'from_name': myName,
+        'to_player_id': chosenPlayer.playerId,
+        'card': assetPath,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '✅ Kartu dikirim ke ${chosenPlayer.playerName}!',
+            style: GoogleFonts.montserrat(fontWeight: FontWeight.w700),
+          ),
+          backgroundColor: const Color(0xFF4A6741),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _consumeAllTeammateCards(List<Map<String, String>> usedTeammateCards) async {
+    if (!_isMultiplayer || widget.multiplayerRoomId == null || usedTeammateCards.isEmpty) return;
+    try {
+      final profile = await LeaderboardService.instance.getPlayerProfile(_myPlayerId);
+      final myName = profile?.displayName ?? 'Teammate';
+
+      // Kelompokkan kartu berdasarkan pemiliknya (friendId)
+      final Map<String, List<String>> cardsByFriend = {};
+      for (final item in usedTeammateCards) {
+        final fId = item['playerId'] ?? '';
+        final cPath = item['card'] ?? '';
+        if (fId.isNotEmpty && cPath.isNotEmpty) {
+          cardsByFriend.putIfAbsent(fId, () => []).add(cPath);
+        }
+      }
+
+      for (final entry in cardsByFriend.entries) {
+        final friendId = entry.key;
+        final cardsToConsume = entry.value;
+
+        // Ambil kartu terakhir milik rekan dari state
+        final friendCards = List<String>.from(
+          _mpGameState?.getPlayerHandCards(friendId) ?? [],
+        );
+
+        for (final cardPath in cardsToConsume) {
+          final targetNum = _cardNumber(cardPath);
+          final idx = friendCards.indexWhere((c) =>
+              c == cardPath ||
+              c.replaceAll('\\', '/') == cardPath.replaceAll('\\', '/') ||
+              (targetNum > 0 && _cardNumber(c) == targetNum));
+          if (idx != -1) {
+            friendCards.removeAt(idx);
+          }
+        }
+
+        // Catat penggunaan kartu teman dan sertakan remaining_cards agar pasti sinkron
+        for (final cardPath in cardsToConsume) {
+          await GameStateService.instance.updateGameState(
+            widget.multiplayerRoomId!,
+            appendActionLog: {
+              'type': 'friend_card_used',
+              'by_player_id': _myPlayerId,
+              'by_name': myName,
+              'from_player_id': friendId,
+              'card': cardPath,
+              'remaining_cards': friendCards,
+              'timestamp': DateTime.now().toIso8601String(),
+            },
+          );
+        }
+
+        // Sinkronkan daftar kartu tersisa rekan ke action_log
+        await GameStateService.instance.syncPlayerHandCards(
+          roomId: widget.multiplayerRoomId!,
+          playerId: friendId,
+          handCards: friendCards,
+        );
+      }
+    } catch (e) {
+      print('Error consuming teammate cards: $e');
+    }
+  }
+
   void _updateTurnState() {
     if (_mpGameState == null) return;
     final newIsMyTurn = _mpGameState!.currentPlayerId == _myPlayerId;
@@ -400,7 +756,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '🎯 Giliran kamu!',
+              '🎯 Your turn!',
               style: GoogleFonts.montserrat(fontWeight: FontWeight.w700),
             ),
             backgroundColor: const Color(0xFF4CAF50),
@@ -429,9 +785,13 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   Future<void> _endTurn() async {
     if (!_isMultiplayer || !_isMyTurn) return;
 
-    // Sort players by joinedAt to get a CONSISTENT, deterministic turn order
+    // Sort players by joinedAt and playerId to get a CONSISTENT, deterministic turn order
     final sortedPlayers = List<RoomPlayer>.from(_mpPlayers)
-      ..sort((a, b) => a.joinedAt.compareTo(b.joinedAt));
+      ..sort((a, b) {
+        int cmp = a.joinedAt.compareTo(b.joinedAt);
+        if (cmp == 0) return a.playerId.compareTo(b.playerId);
+        return cmp;
+      });
     final playerOrder = sortedPlayers.map((p) => p.playerId).toList();
 
     // Optimistically update UI
@@ -452,7 +812,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal mengakhiri giliran: $e'),
+          content: Text('Failed to end turn: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -461,12 +821,12 @@ class _GamePlayScreenState extends State<GamePlayScreen>
 
   List<String> _pickRandomActionCards() {
     final cards = List<String>.from(_actionCardAssets);
-    
+
     // In multiplayer, exclude Card #3 (Region Change) since regions are pre-assigned
     if (widget.multiplayerRoomId != null) {
       cards.removeWhere((card) => card == 'assets/action_card/3.png');
     }
-    
+
     cards.shuffle(math.Random());
     return cards.take(3).toList();
   }
@@ -546,6 +906,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       barrierDismissible: true,
       builder: (context) => SpinWheelDialog(
         difficulty: widget.selectedDifficulty,
+        isMultiplayer: _isMultiplayer,
         onResult: _handleSpinResult,
       ),
     );
@@ -586,8 +947,6 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         return _crisisTokenPosition > 0;
       case 5:
         return true; // auto-win always possible
-      case 6:
-        return true; // passive – shown here as always
       case 7:
         return !gameRound.anyNumberWins;
       case 8: // climate
@@ -635,7 +994,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       case 5:
         return 'Instantly win the current Eco Crisis!';
       case 6:
-        return 'Ignore this fail and re-spin once';
+        return 'Ignore fail and re-spin once';
       case 7:
         return 'Any number wins — only FAIL loses — next spin';
       case 8:
@@ -653,9 +1012,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     final number = _cardNumber(path);
     if (!_isCardUsable(number)) {
       if (_isMultiplayer && !_isMyTurn) {
-        _showCardSnack('Belum giliranmu! Tunggu pemain lain selesai.');
+        _showCardSnack('Not your turn! Wait for other players to finish.');
       } else {
-        _showCardSnack('Kartu ini belum bisa digunakan sekarang.');
+        _showCardSnack('This card cannot be used right now.');
       }
       return;
     }
@@ -668,16 +1027,16 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           backgroundColor: Colors.transparent,
           child: Container(
             width: 320,
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: const Color(0xFFA5C18A), width: 2),
-              boxShadow: [
+              color: const Color(0xFFFAF7F2),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFF111111), width: 3),
+              boxShadow: const [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
+                  color: Colors.black26,
                   blurRadius: 20,
-                  offset: const Offset(0, 10),
+                  offset: Offset(0, 10),
                 ),
               ],
             ),
@@ -708,7 +1067,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(
                               color: Color(0xFF111111),
-                              width: 2,
+                              width: 2.5,
                             ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(40),
@@ -717,8 +1076,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                           ),
                           child: Text(
                             'Cancel',
-                            style: GoogleFonts.montserrat(
-                              fontSize: 13,
+                            style: GoogleFonts.fredoka(
+                              fontSize: 14,
                               fontWeight: FontWeight.w700,
                               color: Colors.black,
                             ),
@@ -730,13 +1089,13 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                         child: ElevatedButton(
                           onPressed: () => Navigator.of(ctx).pop(true),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFA5C18A),
+                            backgroundColor: const Color(0xFFFFDB72),
                             foregroundColor: Colors.black,
                             elevation: 0,
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             side: const BorderSide(
                               color: Color(0xFF111111),
-                              width: 2,
+                              width: 2.5,
                             ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(40),
@@ -744,8 +1103,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                           ),
                           child: Text(
                             'Use Card',
-                            style: GoogleFonts.montserrat(
-                              fontSize: 13,
+                            style: GoogleFonts.fredoka(
+                              fontSize: 14,
                               fontWeight: FontWeight.w700,
                               color: Colors.black,
                             ),
@@ -794,19 +1153,16 @@ class _GamePlayScreenState extends State<GamePlayScreen>
 
       case 5:
         // Auto-WIN the current crisis
-        _handleSpinResult(gameRound.currentEcoCrisisLevel.toString());
-        _showCardSnack('Auto-Win triggered! 🌟');
-        break;
-
-      case 6:
-        // Passive — handled in _handleSpinResult when fail occurs
-        _showCardSnack(
-          'Reroll card is now active 🎲 It will trigger on next FAIL',
+        _finalizeSpinOutcome(
+          result: gameRound.currentEcoCrisisLevel.toString(),
+          currentLevel: gameRound.currentEcoCrisisLevel,
+          currentVariant: gameRound.currentEcoCrisisVariant,
+          characterPassiveReduction: 0,
+          policyBuff: _policymakerBuff,
+          characterName: selectedCharacter?.title.toLowerCase(),
+          isAutoWin: true,
         );
-        // Card is already removed from hand by useCard(), put it back as a pending buff
-        gameRound.handCards.add(path); // re-add temporarily as "pending"
-        gameRound.usedCards.removeLast();
-        setState(() {});
+        _showCardSnack('Auto-Win triggered! 🌟');
         break;
 
       case 7:
@@ -849,25 +1205,28 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       if (onDone != null) onDone();
       return;
     }
-    
+
     // Get available cards, filtering Card #3 in multiplayer
     final availableCards = List<String>.from(_actionCardAssets);
     if (widget.multiplayerRoomId != null) {
       availableCards.removeWhere((card) => card == 'assets/action_card/3.png');
     }
-    
+
     final picked = availableCards[math.Random().nextInt(availableCards.length)];
     setState(() => gameRound.handCards.add(picked));
-    
+
     // Sync cards to multiplayer state if in multiplayer
     if (_isMultiplayer && widget.multiplayerRoomId != null) {
-      GameStateService.instance.syncPlayerHandCards(
-        roomId: widget.multiplayerRoomId!,
-        playerId: _myPlayerId,
-        handCards: gameRound.handCards,
-      ).catchError((_) {
-        // Silently fail if sync doesn't work - cards still exist locally
-      });
+      GameStateService.instance
+          .syncPlayerHandCards(
+            roomId: widget.multiplayerRoomId!,
+            playerId: _myPlayerId,
+            handCards: gameRound.handCards,
+          )
+          .catchError((_) {
+            // Silently fail if sync doesn't work - cards still exist locally
+            return _mpGameState!;
+          });
     }
 
     showDialog<void>(
@@ -937,7 +1296,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           characterName: widget.selectedCharacterName,
           characterAccentColor: widget.characterAccentColor,
           initialRegion: gameRound.selectedRegion,
-          existingPlayerRegions: _isMultiplayer ? _mpGameState?.getAllPlayerRegions() : null,
+          existingPlayerRegions: _isMultiplayer
+              ? _mpGameState?.getAllPlayerRegions()
+              : null,
           players: _isMultiplayer ? _mpPlayers : null,
           myPlayerId: _isMultiplayer ? _myPlayerId : null,
           onValidateRegion: _isMultiplayer ? _validateRegion : null,
@@ -954,64 +1315,64 @@ class _GamePlayScreenState extends State<GamePlayScreen>
   }
 
   void _handleMapButtonTap() {
-    if (_hasCard(3)) {
-      // Has card 3 — open map with full region-change ability
-      _showMapPopupWithCard();
-    } else {
-      // No card 3 — still open map for viewing, but block region change
-      showDialog<void>(
-        context: context,
-        barrierDismissible: true,
-        barrierColor: Colors.black.withOpacity(0.65),
-        builder: (dialogContext) {
-          return InteractiveMapDialog(
-            characterName: widget.selectedCharacterName,
-            characterAccentColor: widget.characterAccentColor,
-            initialRegion: gameRound.selectedRegion,
-            existingPlayerRegions: _isMultiplayer ? _mpGameState?.getAllPlayerRegions() : null,
-            players: _isMultiplayer ? _mpPlayers : null,
-            myPlayerId: _isMultiplayer ? _myPlayerId : null,
-            regionsNotifier: _isMultiplayer ? _regionsNotifier : null,
-            onRegionSelected: (selectedRegion) {
-              // Cannot change region without Card 3
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      const Text('🔒 ', style: TextStyle(fontSize: 16)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Need Region Change card to change region!',
-                          style: GoogleFonts.montserrat(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
+    // Map button is always for viewing. Region change is strictly via Card 3 usage.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.65),
+      builder: (dialogContext) {
+        return InteractiveMapDialog(
+          characterName: widget.selectedCharacterName,
+          characterAccentColor: widget.characterAccentColor,
+          initialRegion: gameRound.selectedRegion,
+          existingPlayerRegions: _isMultiplayer
+              ? _mpGameState?.getAllPlayerRegions()
+              : null,
+          players: _isMultiplayer ? _mpPlayers : null,
+          myPlayerId: _isMultiplayer ? _myPlayerId : null,
+          regionsNotifier: _isMultiplayer ? _regionsNotifier : null,
+          viewOnly: true,
+          onRegionSelected: (selectedRegion) {
+            final hasCard = _hasCard(3);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Text('🔒 ', style: TextStyle(fontSize: 16)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        hasCard
+                            ? 'Use the Region Change card from your hand to move!'
+                            : 'Need Region Change card to change region!',
+                        style: GoogleFonts.montserrat(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
                         ),
                       ),
-                    ],
-                  ),
-                  backgroundColor: const Color(0xFFB71C1C),
-                  duration: const Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                    ),
+                  ],
                 ),
-              );
-            },
-          );
-        },
-      );
-    }
+                backgroundColor: const Color(0xFFB71C1C),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
-  // ── Spin result with buff/card 6 support ────────────────────────────────────
+  // ── Spin result with post-spin card intervention ────────────────────────────
 
-  void _handleSpinResult(String result) {
+  Future<void> _handleSpinResult(String result) async {
     final currentLevel = gameRound.currentEcoCrisisLevel;
     final currentVariant = gameRound.currentEcoCrisisVariant;
-    
+
     // Determine current eco crisis type (climate, ecology, or energy)
     final ecoCrisisType = _getBadgeTypeForCard(
       gameRound.selectedRegion,
@@ -1026,40 +1387,197 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       characterPassiveReduction = 1;
     } else if (characterName == 'ecologist' && ecoCrisisType == 'ecology') {
       characterPassiveReduction = 1;
-    } else if (characterName == 'energy scientist' && ecoCrisisType == 'energy') {
+    } else if (characterName == 'energy scientist' &&
+        ecoCrisisType == 'energy') {
       characterPassiveReduction = 1;
     }
 
-    // Calculate effectiveLevel with both card buff and character passive
-    // Apply Policymaker buff (+1 to spin result effectively = -1 to effective level)
     final policyBuff = _policymakerBuff;
 
-    final effectiveLevel = (currentLevel - gameRound.difficultyReduction - characterPassiveReduction - policyBuff).clamp(
-      1,
-      99,
-    );
+    // Hitung level efektif krisis sebelum intervensi kartu tambahan
+    final effectiveLevel = (currentLevel -
+            gameRound.difficultyReduction -
+            characterPassiveReduction -
+            policyBuff)
+        .clamp(1, 99);
 
-    // Don't reset card buffs here - they should persist across rerolls!
-    // Buffs will be reset when round ends (WIN/LOSE)
+    final spinNum = int.tryParse(result) ?? 0;
+    final bool alreadyWins = (result != 'fail') &&
+        (gameRound.anyNumberWins || spinNum >= effectiveLevel);
 
-    final resultLevel = int.tryParse(result) ?? 0;
+    // KETENTUAN GAMEPLAY:
+    // 1. Jika sudah MENANG (alreadyWins == true), baik Solo maupun Multiplayer, langsung proses hasil tanpa pop up.
+    if (alreadyWins) {
+      _finalizeSpinOutcome(
+        result: result,
+        currentLevel: currentLevel,
+        currentVariant: currentVariant,
+        characterPassiveReduction: characterPassiveReduction,
+        policyBuff: policyBuff,
+        characterName: characterName,
+        isAutoWin: false,
+      );
+      return;
+    }
 
-    // Card 7 buff: any number wins (don't reset yet!)
-    final bool anyWins = gameRound.anyNumberWins;
+    // 2. Di Mode Solo (Easy, Medium, Hard) saat KALAH / KURANG POINT:
+    // Tampilkan pop up penawaran kartu HANYA jika pemain memiliki kartu di tangan yang CUKUP untuk menang:
+    // - Jika spin FAIL: harus punya Card 5 (Auto-win) atau Card 6 (Reroll).
+    // - Jika spin angka: harus punya Card 5, Card 7 (Any number wins), atau kartu pengurang level (Card 1, Card 8/9/10 sesuai tipe)
+    //   yang jumlah pengurangannya cukup sehingga: effectiveLevel - totalPengurangan <= spinNum.
+    // Jika tidak punya kartu yang cukup (misal spin 1, krisis 5, kartu cuma 2 pengurang), langsung kalahkan saja tanpa pop up.
+    if (!_isMultiplayer) {
+      bool canSoloWin = false;
+      final hand = gameRound.handCards;
 
-    // Debug output
-    print('=== SPIN RESULT ===');
-    print('Current Level: $currentLevel (effective: $effectiveLevel)');
-    print('Spin Result: $result (parsed: $resultLevel)');
-    print('Is Fail: ${result == "fail"}');
-    print('Eco Crisis Card Path: ${_getEcoCrisisCardPath()}');
+      if (result == 'fail') {
+        canSoloWin = hand.any((c) => _cardNumber(c) == 5);
+      } else {
+        final hasAutoWin = hand.any((c) => _cardNumber(c) == 5);
+        final hasAnyNumberWins = hand.any((c) => _cardNumber(c) == 7);
 
-    if (result == 'fail') {
-      // Direct FAIL from wheel — check for Card 6 reroll first
-      if (_hasCard(6)) {
-        _promptCard6Reroll();
+        int maxReduction = 0;
+        for (final c in hand) {
+          final num = _cardNumber(c);
+          if (num == 1) maxReduction += 1;
+          if (num == 8 && ecoCrisisType == 'climate') maxReduction += 1;
+          if (num == 9 && ecoCrisisType == 'ecology') maxReduction += 1;
+          if (num == 10 && ecoCrisisType == 'energy') maxReduction += 1;
+        }
+
+        final potentialTarget = (effectiveLevel - maxReduction).clamp(1, 99);
+        final canReachTargetWithReduction = spinNum >= potentialTarget;
+
+        canSoloWin = hasAutoWin || hasAnyNumberWins || canReachTargetWithReduction;
+      }
+
+      if (!canSoloWin) {
+        _finalizeSpinOutcome(
+          result: result,
+          currentLevel: currentLevel,
+          currentVariant: currentVariant,
+          characterPassiveReduction: characterPassiveReduction,
+          policyBuff: policyBuff,
+          characterName: characterName,
+          isAutoWin: false,
+        );
         return;
       }
+    }
+
+    // Kumpulkan kartu rekan satu tim jika multiplayer dan sedang kalah
+    List<TeammateCardInfo> teammates = [];
+    if (_isMultiplayer && _mpGameState != null) {
+      for (final player in _mpPlayers) {
+        if (player.playerId != _myPlayerId) {
+          final cards = _mpGameState!.getPlayerHandCards(player.playerId);
+          teammates.add(TeammateCardInfo(
+            playerId: player.playerId,
+            playerName: player.playerName,
+            characterName: player.characterName ?? '',
+            cards: cards,
+          ));
+        }
+      }
+    }
+
+    // Tampilkan Dialog Intervensi Kartu Pasca-Spin (Khusus Multiplayer saat Kalah)
+    final decision = await showDialog<PostSpinDecision>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PostSpinDialog(
+        spinResult: result,
+        currentEcoCrisisLevel: currentLevel,
+        baseDifficultyReduction: gameRound.difficultyReduction,
+        characterPassiveReduction: characterPassiveReduction,
+        policymakerBuff: policyBuff,
+        ecoCrisisType: ecoCrisisType,
+        anyNumberWins: gameRound.anyNumberWins,
+        myHandCards: List<String>.from(gameRound.handCards),
+        isMultiplayer: _isMultiplayer,
+        teammates: teammates,
+      ),
+    );
+
+    if (!mounted) return;
+
+    bool isAutoWin = false;
+
+    if (decision != null && !decision.isSkipped) {
+      // 1. Konsumsi kartu milik sendiri yang dipilih
+      for (final cardPath in decision.usedMyCards) {
+        gameRound.useCard(cardPath);
+      }
+      if (decision.usedMyCards.isNotEmpty) {
+        _syncHandCardsToActionLog();
+      }
+
+      // 3. Konsumsi kartu rekan tim yang dipilih
+      if (decision.usedTeammateCards.isNotEmpty) {
+        await _consumeAllTeammateCards(decision.usedTeammateCards);
+      }
+
+      // 4. Terapkan pengurangan level krisis dan buff
+      gameRound.difficultyReduction += decision.totalDifficultyReduction;
+      if (decision.anyNumberWins) {
+        gameRound.anyNumberWins = true;
+      }
+      if (decision.isAutoWin) {
+        isAutoWin = true;
+      }
+
+      if (decision.isReroll) {
+        _showCardSnack('Kartu Reroll digunakan! Silakan spin ulang 🔄');
+        setState(() {});
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) _showSpinWheel();
+        });
+        return;
+      }
+
+      if (decision.usedMyCards.isNotEmpty || decision.usedTeammateCards.isNotEmpty) {
+        _showCardSnack('Kartu berhasil digunakan! Efek krisis berkurang.');
+      }
+      setState(() {});
+    }
+
+    // Evaluasi hasil akhir (Win / Fail)
+    _finalizeSpinOutcome(
+      result: result,
+      currentLevel: currentLevel,
+      currentVariant: currentVariant,
+      characterPassiveReduction: characterPassiveReduction,
+      policyBuff: policyBuff,
+      characterName: characterName,
+      isAutoWin: isAutoWin,
+    );
+  }
+
+  void _finalizeSpinOutcome({
+    required String result,
+    required int currentLevel,
+    required int currentVariant,
+    required int characterPassiveReduction,
+    required int policyBuff,
+    required String? characterName,
+    bool isAutoWin = false,
+  }) {
+    final effectiveLevel = (currentLevel -
+            gameRound.difficultyReduction -
+            characterPassiveReduction -
+            policyBuff)
+        .clamp(1, 99);
+
+    final resultLevel = int.tryParse(result) ?? 0;
+    final bool anyWins = gameRound.anyNumberWins;
+
+    print('=== FINALIZE SPIN OUTCOME ===');
+    print('Current Level: $currentLevel (effective: $effectiveLevel)');
+    print('Spin Result: $result (parsed: $resultLevel)');
+    print('Is Auto Win: $isAutoWin | Any Wins: $anyWins');
+
+    if (result == 'fail' && !isAutoWin) {
+      // Direct FAIL from wheel
       print('Result: FAIL (from wheel)');
       setState(() {
         _crisisTokenPosition = (_crisisTokenPosition + 1).clamp(0, 13);
@@ -1077,9 +1595,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         if (mounted) setState(() {});
       });
 
-      // Check if crisis token reached the end (game over - player loses)
+      // Check if Planet Crisis caught up to Planet Sustain (game over - players lose)
       Future.delayed(const Duration(milliseconds: 100), () {
-        if (_crisisTokenPosition >= 13) {
+        if (_crisisTokenPosition >= _sustainableTokenPosition) {
           _showGameOverDialog(playerWon: false);
         }
       });
@@ -1097,12 +1615,11 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         }
       });
     } else {
-      // Check if numeric result >= effectiveLevel for WIN (Card 1 may lower it)
-      print(
-        'Comparing: $resultLevel >= $effectiveLevel = ${resultLevel >= effectiveLevel} | anyWins: $anyWins',
-      );
+      // Check if WIN (numeric result >= effectiveLevel, or anyWins, or isAutoWin)
+      final bool isWin = isAutoWin || (anyWins ? result != 'fail' : resultLevel >= effectiveLevel);
+      print('Comparing: resultLevel $resultLevel >= effectiveLevel $effectiveLevel = $isWin');
 
-      if (anyWins ? result != 'fail' : resultLevel >= effectiveLevel) {
+      if (isWin) {
         // WIN
         print('Result: WIN');
 
@@ -1113,6 +1630,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           currentVariant,
         );
         final badgeUnlocked = gameRound.unlockBadge(badgeType);
+        if (badgeUnlocked) {
+          _syncBadgeToActionLog(badgeType, gameRound.getBadgeLevel(badgeType));
+        }
 
         setState(() {
           _sustainableTokenPosition = (_sustainableTokenPosition + 1).clamp(
@@ -1124,7 +1644,6 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           // Reset card buffs when round ends
           gameRound.difficultyReduction = 0;
           gameRound.anyNumberWins = false;
-          // User asked for this logic
           gameRound.randomizeEcoCrisisLevel();
         });
 
@@ -1212,11 +1731,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           }
         });
       } else {
-        // FAILED (result < level) — check for Card 6 reroll first
-        if (_hasCard(6)) {
-          _promptCard6Reroll();
-          return;
-        }
+        // FAILED (result < level)
         print('Result: FAILED');
         setState(() {
           _crisisTokenPosition = (_crisisTokenPosition + 1).clamp(0, 13);
@@ -1235,9 +1750,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           if (mounted) setState(() {});
         });
 
-        // Check if crisis token reached the end (game over - player loses)
+        // Check if Planet Crisis caught up to Planet Sustain (game over - players lose)
         Future.delayed(const Duration(milliseconds: 100), () {
-          if (_crisisTokenPosition >= 13) {
+          if (_crisisTokenPosition >= _sustainableTokenPosition) {
             _showGameOverDialog(playerWon: false);
           }
         });
@@ -1257,7 +1772,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       }
     }
     print('==================');
-    
+
     // Auto-switch turn in multiplayer after action completes
     if (_isMultiplayer && _isMyTurn) {
       Future.delayed(const Duration(seconds: 2), () {
@@ -1282,7 +1797,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     final charName = selectedCharacter!.title.toLowerCase();
     final currentLevel = gameRound.currentEcoCrisisLevel;
     final currentVariant = gameRound.currentEcoCrisisVariant;
-    
+
     // Determine current eco crisis type
     final ecoCrisisType = _getBadgeTypeForCard(
       gameRound.selectedRegion,
@@ -1362,7 +1877,10 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       builder: (ctx) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 24,
+          ),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final maxH = constraints.maxHeight;
@@ -1372,16 +1890,16 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   maxWidth: 320,
                   maxHeight: maxH * 0.85,
                 ),
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: const Color(0xFFEB5757), width: 2),
-                  boxShadow: [
+                  color: const Color(0xFFFAF7F2),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: const Color(0xFF111111), width: 3),
+                  boxShadow: const [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
+                      color: Colors.black26,
                       blurRadius: 20,
-                      offset: const Offset(0, 10),
+                      offset: Offset(0, 10),
                     ),
                   ],
                 ),
@@ -1416,17 +1934,19 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(
                                   color: Color(0xFF111111),
-                                  width: 2,
+                                  width: 2.5,
                                 ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(40),
                                 ),
-                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                               ),
                               child: Text(
                                 'No, Fail',
-                                style: GoogleFonts.montserrat(
-                                  fontSize: 12,
+                                style: GoogleFonts.fredoka(
+                                  fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                   color: Colors.black,
                                 ),
@@ -1438,13 +1958,15 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                             child: ElevatedButton(
                               onPressed: () => Navigator.of(ctx).pop(true),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFA5C18A),
+                                backgroundColor: const Color(0xFFFFDB72),
                                 foregroundColor: Colors.black,
                                 elevation: 0,
-                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                                 side: const BorderSide(
                                   color: Color(0xFF111111),
-                                  width: 2,
+                                  width: 2.5,
                                 ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(40),
@@ -1452,8 +1974,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                               ),
                               child: Text(
                                 'Reroll! 🎲',
-                                style: GoogleFonts.montserrat(
-                                  fontSize: 12,
+                                style: GoogleFonts.fredoka(
+                                  fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                   color: Colors.black,
                                 ),
@@ -1488,7 +2010,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         });
         _syncToSupabase();
         Future.delayed(const Duration(milliseconds: 100), () {
-          if (_crisisTokenPosition >= 13) _showGameOverDialog(playerWon: false);
+          if (_crisisTokenPosition >= _sustainableTokenPosition)
+            _showGameOverDialog(playerWon: false);
         });
         _showGameResultDialog(
           title: 'FAIL',
@@ -1510,27 +2033,106 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     });
   }
 
+  /// Score calculation according to Eco Avenger boardgame rules:
+  /// +10 pts for each Professional Icon Token
+  /// +30 pts for each Professional Master Token
+  /// +10 pts per Action Card left in the hands of all team members
+  /// +10 pts per Blank space between Planetary Crisis token and Sustainable Planet token
+  /// -10 pts per Eco Crisis Card failed to be solved
+  Map<String, int> _calculateScoreBreakdown() {
+    int totalIconTokens = 0;
+    int totalMasterTokens = 0;
+    int totalRemainingCards = 0;
+    int blanksCount = math.max(0, _sustainableTokenPosition - _crisisTokenPosition - 1);
+    int failedCardsCount = gameRound.failCount;
+
+    if (_isMultiplayer && _mpGameState != null) {
+      final allBadges = _mpGameState!.getAllPlayerBadges();
+      for (final bMap in allBadges.values) {
+        for (final lvl in bMap.values) {
+          if (lvl >= 1) totalIconTokens += 1;
+          if (lvl >= 2) totalIconTokens += 1;
+          if (lvl >= 3) totalMasterTokens += 1;
+        }
+      }
+      for (final p in _mpPlayers) {
+        final cards = _mpGameState!.getPlayerHandCards(p.playerId);
+        if (cards != null && cards.isNotEmpty) {
+          totalRemainingCards += cards.length;
+        } else if (p.playerId == _myPlayerId) {
+          totalRemainingCards += gameRound.handCards.length;
+        }
+      }
+      if (totalRemainingCards == 0) {
+        totalRemainingCards = gameRound.handCards.length;
+      }
+    } else {
+      for (final type in ['climate', 'ecology', 'energy']) {
+        final lvl = gameRound.getBadgeLevel(type);
+        if (lvl >= 1) totalIconTokens += 1;
+        if (lvl >= 2) totalIconTokens += 1;
+        if (lvl >= 3) totalMasterTokens += 1;
+      }
+      totalRemainingCards = gameRound.handCards.length;
+    }
+
+    final totalScore = math.max(
+      0,
+      (totalIconTokens * 10) +
+      (totalMasterTokens * 30) +
+      (totalRemainingCards * 10) +
+      (blanksCount * 10) -
+      (failedCardsCount * 10),
+    );
+
+    return {
+      'iconTokens': totalIconTokens,
+      'masterTokens': totalMasterTokens,
+      'remainingCards': totalRemainingCards,
+      'blanks': blanksCount,
+      'failedCards': failedCardsCount,
+      'totalScore': totalScore,
+    };
+  }
+
   /// Save LOSE result to game_results table (mirrors WinProfileDialog's save logic)
   Future<void> _saveLoseResult() async {
     try {
       final playerId = await SupabaseService.instance.getOrCreatePlayerId();
-      final profile = await LeaderboardService.instance.getPlayerProfile(playerId);
+      final profile = await LeaderboardService.instance.getPlayerProfile(
+        playerId,
+      );
       String displayName = profile?.displayName ?? 'Player';
       if (profile == null) {
         final username = await AuthService.instance.getUsername();
         if (username != null) displayName = username;
       }
 
-      final badgeMap = <String, int>{
+      int finalWinCount = gameRound.successCount;
+      int finalLoseCount = gameRound.failCount;
+      Map<String, int> finalBadgeMap = {
         'climate': gameRound.getBadgeLevel('climate'),
         'ecology': gameRound.getBadgeLevel('ecology'),
         'energy': gameRound.getBadgeLevel('energy'),
       };
 
-      final score = (gameRound.successCount * 100 +
-              badgeMap.values.fold(0, (a, b) => a + b) * 50 -
-              gameRound.failCount * 10)
-          .clamp(0, 999999);
+      if (_isMultiplayer && _mpGameState != null) {
+        finalWinCount = (_sustainableTokenPosition - 4).clamp(0, 999);
+        finalLoseCount = _crisisTokenPosition;
+        final teamBadges = _mpGameState!.getAllPlayerBadges();
+
+        finalBadgeMap = {'climate': 0, 'ecology': 0, 'energy': 0};
+        for (final badges in teamBadges.values) {
+          badges.forEach((key, val) {
+            if (finalBadgeMap.containsKey(key)) {
+              finalBadgeMap[key] = (finalBadgeMap[key] ?? 0) + val;
+            }
+          });
+        }
+      }
+
+      final scoreData = _calculateScoreBreakdown();
+      final score = scoreData['totalScore'] ?? 0;
 
       await LeaderboardService.instance.submitResult(
         playerId: playerId,
@@ -1540,12 +2142,14 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         character: widget.selectedCharacterName,
         region: gameRound.selectedRegion,
         difficulty: widget.selectedDifficulty,
-        mode: _isMultiplayer ? 'multiplayer' : 'singleplayer',
+        mode: _isMultiplayer
+            ? 'multiplayer_${widget.multiplayerRoomId}'
+            : 'singleplayer',
         result: 'lose',
-        winCount: gameRound.successCount,
-        loseCount: gameRound.failCount,
+        winCount: finalWinCount,
+        loseCount: finalLoseCount,
         score: score,
-        badges: badgeMap,
+        badges: finalBadgeMap,
       );
     } catch (_) {
       // Silently fail — don't block the game over dialog
@@ -1557,24 +2161,68 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     if (_gameOverShown) return;
     _gameOverShown = true;
 
+    // Set room status to finished so it doesn't stay as 'playing' and clutter the database
+    if (_isMultiplayer && widget.multiplayerRoomId != null) {
+      final isHost = _mpPlayers.any(
+        (p) => p.playerId == _myPlayerId && p.isHost,
+      );
+      if (isHost) {
+        RoomService.instance
+            .updateRoomStatus(
+              widget.multiplayerRoomId!,
+              AppConstants.statusFinished,
+            )
+            .catchError((_) {});
+      }
+    }
+
     if (playerWon) {
       // WIN — show profile input dialog
-      final badgeMap = <String, int>{
+      int finalWinCount = gameRound.successCount;
+      int finalLoseCount = gameRound.failCount;
+      Map<String, int> finalBadgeMap = {
         'climate': gameRound.getBadgeLevel('climate'),
         'ecology': gameRound.getBadgeLevel('ecology'),
         'energy': gameRound.getBadgeLevel('energy'),
       };
+
+      if (_isMultiplayer && _mpGameState != null) {
+        finalWinCount = (_sustainableTokenPosition - 4).clamp(0, 999);
+        finalLoseCount = _crisisTokenPosition;
+        final teamBadges = _mpGameState!.getAllPlayerBadges();
+
+        finalBadgeMap = {'climate': 0, 'ecology': 0, 'energy': 0};
+        for (final badges in teamBadges.values) {
+          badges.forEach((key, val) {
+            if (finalBadgeMap.containsKey(key)) {
+              finalBadgeMap[key] = (finalBadgeMap[key] ?? 0) + val;
+            }
+          });
+        }
+      }
+
+      final scoreData = _calculateScoreBreakdown();
+      final score = scoreData['totalScore'] ?? 0;
+
       showDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => WinProfileDialog(
-          winCount: gameRound.successCount,
-          loseCount: gameRound.failCount,
+          winCount: finalWinCount,
+          loseCount: finalLoseCount,
           character: widget.selectedCharacterName,
           region: gameRound.selectedRegion,
           difficulty: widget.selectedDifficulty,
-          mode: _isMultiplayer ? 'multiplayer' : 'singleplayer',
-          badges: badgeMap,
+          mode: _isMultiplayer
+              ? 'multiplayer_${widget.multiplayerRoomId}'
+              : 'singleplayer',
+          badges: finalBadgeMap,
+          score: score,
+          iconTokensCount: scoreData['iconTokens'],
+          masterTokensCount: scoreData['masterTokens'],
+          remainingCardsCount: scoreData['remainingCards'],
+          blanksCount: scoreData['blanks'],
+          failedCardsCount: scoreData['failedCards'],
           onDone: () {
             Navigator.of(ctx).pop();
             Navigator.of(context).popUntil((route) => route.isFirst);
@@ -1583,6 +2231,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       );
       return;
     }
+
 
     // LOSE — save result then show dialog
     _saveLoseResult();
@@ -1594,20 +2243,17 @@ class _GamePlayScreenState extends State<GamePlayScreen>
         return Dialog(
           backgroundColor: Colors.transparent,
           child: Container(
-            width: 300,
+            width: 320,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: AppColors.pureWhite,
+              color: const Color(0xFFFAF7F2),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: const Color(0xFFEB5757),
-                width: 3,
-              ),
-              boxShadow: [
+              border: Border.all(color: const Color(0xFF111111), width: 3),
+              boxShadow: const [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 32,
-                  offset: const Offset(0, 16),
+                  color: Colors.black26,
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
                 ),
               ],
             ),
@@ -1616,24 +2262,32 @@ class _GamePlayScreenState extends State<GamePlayScreen>
               children: [
                 Text(
                   'GAME OVER',
-                  style: GoogleFonts.montserrat(
-                    fontSize: 28,
+                  style: GoogleFonts.fredoka(
+                    fontSize: 26,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black,
+                    color: const Color(0xFF111111),
                     letterSpacing: 1,
                   ),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'YOU LOSE!',
-                  style: GoogleFonts.montserrat(
-                    fontSize: 40,
-                    fontWeight: FontWeight.w700,
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
                     color: const Color(0xFFEB5757),
-                    letterSpacing: 2,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF111111), width: 2),
+                  ),
+                  child: Text(
+                    'YOU LOSE!',
+                    style: GoogleFonts.fredoka(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 1.5,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 Text(
                   'Planetary Crisis reached the goal! 🌍',
                   textAlign: TextAlign.center,
@@ -1651,9 +2305,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                       Navigator.of(context).popUntil((route) => route.isFirst);
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFEB5757),
+                      backgroundColor: const Color(0xFFFFDB72),
                       foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(51),
                         side: const BorderSide(
@@ -1665,7 +2319,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     ),
                     child: Text(
                       'Back to Menu',
-                      style: GoogleFonts.montserrat(
+                      style: GoogleFonts.fredoka(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                         color: Colors.black,
@@ -1693,41 +2347,49 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       builder: (context) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 32,
+            vertical: 24,
+          ),
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 300),
-            padding: const EdgeInsets.all(20),
+            constraints: const BoxConstraints(maxWidth: 320),
+            padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              color: AppColors.pureWhite,
-              borderRadius: BorderRadius.circular(22),
+              color: const Color(0xFFFAF7F2),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: isSuccess
-                    ? const Color(0xFFA5C18A)
-                    : const Color(0xFFEB5757),
-                width: 2,
+                color: const Color(0xFF111111),
+                width: 3,
               ),
-              boxShadow: [
+              boxShadow: const [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.22),
-                  blurRadius: 24,
-                  offset: const Offset(0, 12),
+                  color: Colors.black26,
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
                 ),
               ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  title,
-                  style: GoogleFonts.montserrat(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                    color: isSuccess
-                        ? const Color(0xFFA5C18A)
-                        : const Color(0xFFEB5757),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isSuccess ? const Color(0xFF76B828) : const Color(0xFFEB5757),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF111111), width: 2),
+                  ),
+                  child: Text(
+                    title,
+                    style: GoogleFonts.fredoka(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: 0.8,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
                 Text(
                   message,
                   textAlign: TextAlign.center,
@@ -1737,7 +2399,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     color: Colors.black87,
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 18),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -1746,9 +2408,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                       onClosed?.call();
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isSuccess
-                          ? const Color(0xFFA5C18A)
-                          : const Color(0xFFEB5757),
+                      backgroundColor: const Color(0xFFFFDB72),
                       foregroundColor: Colors.black,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
@@ -1762,8 +2422,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     ),
                     child: Text(
                       'Continue',
-                      style: GoogleFonts.montserrat(
-                        fontSize: 14,
+                      style: GoogleFonts.fredoka(
+                        fontSize: 15,
                         fontWeight: FontWeight.w700,
                         color: Colors.black,
                       ),
@@ -1793,7 +2453,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           characterName: widget.selectedCharacterName,
           characterAccentColor: widget.characterAccentColor,
           initialRegion: gameRound.selectedRegion,
-          existingPlayerRegions: _isMultiplayer ? _mpGameState?.getAllPlayerRegions() : null,
+          existingPlayerRegions: _isMultiplayer
+              ? _mpGameState?.getAllPlayerRegions()
+              : null,
           players: _isMultiplayer ? _mpPlayers : null,
           myPlayerId: _isMultiplayer ? _myPlayerId : null,
           forceSelect: forceSelect,
@@ -1900,121 +2562,111 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       opacity: _fadeController,
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            // 1. Wood background texture
-            Image.asset(
-              'assets/background/kayu.png',
-              fit: BoxFit.cover,
-              alignment: Alignment.center,
-            ),
-            // 2. White layer container with map board
-            Center(
-              child: Container(
-                margin: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
+        body: RefreshIndicator(
+          color: const Color(0xFFA5C18A),
+          backgroundColor: Colors.white,
+          onRefresh: () async {
+            if (_isMultiplayer && widget.multiplayerRoomId != null) {
+              final newState = await GameStateService.instance.getGameState(
+                widget.multiplayerRoomId!,
+              );
+              if (newState != null && mounted) {
+                _onGameStateUpdated(newState);
+              }
+              final players = await RoomService.instance.getPlayers(
+                widget.multiplayerRoomId!,
+              );
+              if (mounted) {
+                setState(() => _mpPlayers = players);
+              }
+            }
+          },
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompactHeight = constraints.maxHeight < 520;
+
+              return SizedBox(
+                height: constraints.maxHeight,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // 1. World map sea background
+                    Image.asset(
+                      'assets/Element Eco Avenger/boardgame_asset/bg.png',
+                      fit: BoxFit.cover,
+                      alignment: Alignment.center,
+                    ),
+                    // 2. Game content overlay
+                    SafeArea(
+                      child: Column(
+                        children: [
+                          // Top: Logo Eco Avengers & Wooden Token Track
+                          Padding(
+                            padding: EdgeInsets.only(
+                              top: isCompactHeight ? 2 : 6,
+                              bottom: isCompactHeight ? 2 : 6,
+                            ),
+                            child: Image.asset(
+                              'assets/Element Eco Avenger/boardgame_asset/Logo eco avenger.png',
+                              height: isCompactHeight ? 28 : 72,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          _buildTokenTrackWooden(isCompactHeight: isCompactHeight),
+                          if (_isMultiplayer)
+                            _buildMultiplayerBanner(isCompact: isCompactHeight),
+                          SizedBox(height: isCompactHeight ? 2 : 8),
+                          // Middle: Left (Eco Crisis Card in left.png) + Center (Action cards) + Right (Character in right.png)
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                              child: LayoutBuilder(
+                                builder: (context, middleConstraints) {
+                                  final availableH = middleConstraints.maxHeight;
+                                  return Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      // Left wooden board with Eco Crisis Card
+                                      _buildPhotoDisplay(availableH: availableH),
+                                      // Center map view area with action cards strip at bottom
+                                      Expanded(
+                                        child: Column(
+                                          children: [
+                                            const Spacer(),
+                                            _buildActionCardsStrip(availableH: availableH),
+                                          ],
+                                        ),
+                                      ),
+                                      // Right wooden board with Character & Buttons
+                                      _buildCharacterDisplay(availableH: availableH),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // 3. Map background image
-                      Image.asset(
-                        'assets/background/map-boardgame.png',
-                        fit: BoxFit.contain,
-                        alignment: Alignment.center,
-                      ),
-                      // 4. Game content overlay
-                      // 4. Game content overlay with responsive layout
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final isMobile = constraints.maxWidth < 800;
-                          final isSmallPhone = constraints.maxWidth < 420;
-                          
-                          if (isMobile) {
-                            // Mobile: compact stacked layout
-                            final photoW = isSmallPhone ? 140.0 : 170.0;
-                            return SafeArea(
-                              child: Column(
-                                children: [
-                                  // Top: token track (full width)
-                                  _buildTokenTrack(),
-                                  if (_isMultiplayer) _buildMultiplayerBanner(),
-                                  // Middle: photo + character side by side
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      child: Row(
-                                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                                        children: [
-                                          SizedBox(
-                                            width: photoW,
-                                            child: _buildPhotoDisplayCompact(),
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Expanded(
-                                            child: _buildCharacterDisplayCompact(),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  // Bottom: action cards (full width)
-                                  _buildActionCardsStrip(),
-                                ],
-                              ),
-                            );
-                          }
-                          
-                          // Desktop/tablet: original layout with Expanded
-                          return SafeArea(
-                            child: Row(
-                              children: [
-                                _buildPhotoDisplay(),
-                                Expanded(
-                                  child: Column(
-                                    children: [
-                                      _buildTokenTrack(),
-                                      if (_isMultiplayer) _buildMultiplayerBanner(),
-                                      const Expanded(child: SizedBox.expand()),
-                                      _buildActionCardsStrip(),
-                                    ],
-                                  ),
-                                ),
-                                _buildCharacterDisplay(),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+              );
+            },
+          ),
         ),
       ),
     );
   }
-  Widget _buildMultiplayerBanner() {
-    final currentPlayerName = _mpPlayers
-        .where((p) => p.playerId == _mpGameState?.currentPlayerId)
-        .map((p) => p.playerName)
-        .firstOrNull ?? 'Unknown';
+
+  Widget _buildMultiplayerBanner({bool isCompact = false}) {
+    final currentPlayerName =
+        _mpPlayers
+            .where((p) => p.playerId == _mpGameState?.currentPlayerId)
+            .map((p) => p.playerName)
+            .firstOrNull ??
+        'Unknown';
     final allRegions = _mpGameState?.getAllPlayerRegions() ?? {};
-    
+
     // Find current player info
     final currentPlayer = _mpPlayers.firstWhere(
       (p) => p.playerId == _mpGameState?.currentPlayerId,
@@ -2024,6 +2676,172 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       (p) => p.playerId == _myPlayerId,
       orElse: () => _mpPlayers.first,
     );
+
+    if (isCompact) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
+        child: Container(
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.95),
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(
+              color: _isMyTurn
+                  ? const Color(0xFF4CAF50)
+                  : const Color(0xFFF44336).withOpacity(0.7),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              // Current Turn status + avatar
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: _isMyTurn ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+                    width: 1.5,
+                  ),
+                ),
+                child: CircleAvatar(
+                  radius: 11,
+                  backgroundColor: Colors.grey.shade300,
+                  backgroundImage: currentPlayer.characterAsset != null
+                      ? AssetImage(currentPlayer.characterAsset!)
+                      : null,
+                  child: currentPlayer.characterAsset == null
+                      ? const Icon(Icons.person, size: 13)
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _isMyTurn ? Icons.play_circle_filled : Icons.hourglass_bottom,
+                        size: 10,
+                        color: _isMyTurn ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        _isMyTurn ? 'YOUR TURN' : 'WAITING',
+                        style: GoogleFonts.montserrat(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w900,
+                          color: _isMyTurn ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    _isMyTurn ? 'You (${myPlayer.playerName})' : currentPlayerName,
+                    style: GoogleFonts.montserrat(
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+              if (_policymakerBuff > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFB07D54),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '+1 BUFF',
+                    style: GoogleFonts.montserrat(
+                      fontSize: 7.5,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+              if (_mpPlayers.length > 1) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: VerticalDivider(color: Colors.black.withOpacity(0.15), width: 1),
+                ),
+                Text(
+                  'TEAM:',
+                  style: GoogleFonts.montserrat(
+                    fontSize: 7.5,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black45,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _mpPlayers
+                          .where((p) => p.playerId != _mpGameState?.currentPlayerId)
+                          .map((player) {
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.black.withOpacity(0.08)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 8,
+                                      backgroundColor: Colors.grey.shade300,
+                                      backgroundImage: player.characterAsset != null
+                                          ? AssetImage(player.characterAsset!)
+                                          : null,
+                                      child: player.characterAsset == null
+                                          ? const Icon(Icons.person, size: 9)
+                                          : null,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      player.playerName,
+                                      style: GoogleFonts.montserrat(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          })
+                          .toList(),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
@@ -2068,16 +2886,18 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: _isMyTurn 
-                            ? const Color(0xFF4CAF50) 
+                        color: _isMyTurn
+                            ? const Color(0xFF4CAF50)
                             : const Color(0xFFF44336),
                         width: 2.5,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: (_isMyTurn 
-                              ? const Color(0xFF4CAF50) 
-                              : const Color(0xFFF44336)).withOpacity(0.3),
+                          color:
+                              (_isMyTurn
+                                      ? const Color(0xFF4CAF50)
+                                      : const Color(0xFFF44336))
+                                  .withOpacity(0.3),
                           blurRadius: 6,
                           spreadRadius: 1,
                         ),
@@ -2103,9 +2923,13 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                         Row(
                           children: [
                             Icon(
-                              _isMyTurn ? Icons.play_circle_filled : Icons.hourglass_bottom,
+                              _isMyTurn
+                                  ? Icons.play_circle_filled
+                                  : Icons.hourglass_bottom,
                               size: 14,
-                              color: _isMyTurn ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                              color: _isMyTurn
+                                  ? const Color(0xFF2E7D32)
+                                  : const Color(0xFFC62828),
                             ),
                             const SizedBox(width: 4),
                             Text(
@@ -2113,7 +2937,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                               style: GoogleFonts.montserrat(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w900,
-                                color: _isMyTurn ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                                color: _isMyTurn
+                                    ? const Color(0xFF2E7D32)
+                                    : const Color(0xFFC62828),
                                 letterSpacing: 0.8,
                               ),
                             ),
@@ -2121,7 +2947,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          _isMyTurn ? 'You (${myPlayer.playerName})' : currentPlayerName,
+                          _isMyTurn
+                              ? 'You (${myPlayer.playerName})'
+                              : currentPlayerName,
                           style: GoogleFonts.montserrat(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -2147,7 +2975,10 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   // Policymaker buff indicator
                   if (_policymakerBuff > 0)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFB07D54),
                         borderRadius: BorderRadius.circular(8),
@@ -2161,10 +2992,7 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text(
-                            '🏛️',
-                            style: TextStyle(fontSize: 12),
-                          ),
+                          const Text('🏛️', style: TextStyle(fontSize: 12)),
                           const SizedBox(width: 3),
                           Text(
                             '+1 BUFF',
@@ -2202,58 +3030,68 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     Wrap(
                       spacing: 8,
                       runSpacing: 6,
-                      children: _mpPlayers.where((p) => p.playerId != _mpGameState?.currentPlayerId).map((player) {
-                        final region = allRegions[player.playerId] ?? '?';
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: Colors.black.withOpacity(0.08),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CircleAvatar(
-                                radius: 14,
-                                backgroundColor: Colors.grey.shade300,
-                                backgroundImage: player.characterAsset != null
-                                    ? AssetImage(player.characterAsset!)
-                                    : null,
-                                child: player.characterAsset == null
-                                    ? const Icon(Icons.person, size: 16)
-                                    : null,
+                      children: _mpPlayers
+                          .where(
+                            (p) => p.playerId != _mpGameState?.currentPlayerId,
+                          )
+                          .map((player) {
+                            final region = allRegions[player.playerId] ?? '?';
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 6,
                               ),
-                              const SizedBox(width: 6),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.black.withOpacity(0.08),
+                                ),
+                              ),
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    player.playerName,
-                                    style: GoogleFonts.montserrat(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.black87,
-                                    ),
+                                  CircleAvatar(
+                                    radius: 14,
+                                    backgroundColor: Colors.grey.shade300,
+                                    backgroundImage:
+                                        player.characterAsset != null
+                                        ? AssetImage(player.characterAsset!)
+                                        : null,
+                                    child: player.characterAsset == null
+                                        ? const Icon(Icons.person, size: 16)
+                                        : null,
                                   ),
-                                  if (player.characterName != null)
-                                    Text(
-                                      '${player.characterName} • $region',
-                                      style: GoogleFonts.montserrat(
-                                        fontSize: 7,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black54,
+                                  const SizedBox(width: 6),
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        player.playerName,
+                                        style: GoogleFonts.montserrat(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.black87,
+                                        ),
                                       ),
-                                    ),
+                                      if (player.characterName != null)
+                                        Text(
+                                          '${player.characterName} • $region',
+                                          style: GoogleFonts.montserrat(
+                                            fontSize: 7,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
                                 ],
                               ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
+                            );
+                          })
+                          .toList(),
                     ),
                   ],
                 ),
@@ -2287,15 +3125,15 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   color: widget.selectedDifficulty.toLowerCase() == 'easy'
                       ? const Color(0xFF4CAF50).withOpacity(0.15)
                       : widget.selectedDifficulty.toLowerCase() == 'normal'
-                          ? const Color(0xFF2196F3).withOpacity(0.15)
-                          : const Color(0xFFF44336).withOpacity(0.15),
+                      ? const Color(0xFF2196F3).withOpacity(0.15)
+                      : const Color(0xFFF44336).withOpacity(0.15),
                   borderRadius: BorderRadius.circular(4),
                   border: Border.all(
                     color: widget.selectedDifficulty.toLowerCase() == 'easy'
                         ? const Color(0xFF4CAF50).withOpacity(0.5)
                         : widget.selectedDifficulty.toLowerCase() == 'normal'
-                            ? const Color(0xFF2196F3).withOpacity(0.5)
-                            : const Color(0xFFF44336).withOpacity(0.5),
+                        ? const Color(0xFF2196F3).withOpacity(0.5)
+                        : const Color(0xFFF44336).withOpacity(0.5),
                     width: 1,
                   ),
                 ),
@@ -2305,8 +3143,8 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     color: widget.selectedDifficulty.toLowerCase() == 'easy'
                         ? const Color(0xFF2E7D32)
                         : widget.selectedDifficulty.toLowerCase() == 'normal'
-                            ? const Color(0xFF1565C0)
-                            : const Color(0xFFC62828),
+                        ? const Color(0xFF1565C0)
+                        : const Color(0xFFC62828),
                     fontWeight: FontWeight.w800,
                     fontSize: 9,
                   ),
@@ -2363,20 +3201,19 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
           Text(
-            label,
+            '$label: ',
             style: GoogleFonts.montserrat(
-              color: Colors.black87,
               fontSize: 9,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
+              color: Colors.black54,
             ),
           ),
-          const Spacer(),
           Text(
             value,
             style: GoogleFonts.montserrat(
-              color: Colors.black87,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: color,
             ),
           ),
         ],
@@ -2384,32 +3221,29 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     );
   }
 
-  Widget _buildActionCardsStrip() {
-    final isCompactHeight = MediaQuery.of(context).size.height < 500;
-    final cardWidth = isCompactHeight ? 80.0 : 120.0;
-    final cardHeight = isCompactHeight ? 112.0 : 168.0;
+  Widget _buildActionCardsStrip({double? availableH}) {
+    final isCompactHeight = MediaQuery.of(context).size.height < 520;
+    final cardHeight = availableH != null
+        ? (availableH * 0.40).clamp(48.0, 160.0)
+        : (isCompactHeight ? 80.0 : 160.0);
+    final cardWidth = cardHeight * (76.0 / 108.0);
 
     final hand = gameRound.handCards;
 
     if (hand.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+        padding: const EdgeInsets.only(bottom: 4),
         child: Container(
-          height: isCompactHeight ? 136.0 : 192.0,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.black.withOpacity(0.08)),
+            color: Colors.black.withOpacity(0.35),
+            borderRadius: BorderRadius.circular(16),
           ),
-          child: Center(
-            child: Text(
-              'No action cards in hand',
-              style: GoogleFonts.montserrat(
-                fontSize: 13,
-                color: Colors.black45,
-                fontWeight: FontWeight.w500,
-              ),
+          child: Text(
+            'No action cards in hand',
+            style: GoogleFonts.fredoka(
+              fontSize: isCompactHeight ? 10 : 12,
+              color: Colors.white70,
             ),
           ),
         ),
@@ -2419,77 +3253,348 @@ class _GamePlayScreenState extends State<GamePlayScreen>
     final cardWidgets = hand.map((assetPath) {
       final num = _cardNumber(assetPath);
       final usable = _isCardUsable(num);
+      final canShare = _isMultiplayer && !_isMyTurn;
 
       return GestureDetector(
-        onTap: () => _useCard(assetPath),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          margin: EdgeInsets.only(
-            right: 12,
-            bottom: usable ? 0 : 0,
-            top: usable ? 0 : 4,
-          ),
-          width: cardWidth,
-          height: cardHeight,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: usable
-                ? Border.all(color: const Color(0xFF4CAF50), width: 2.5)
-                : Border.all(color: Colors.transparent, width: 2.5),
-            boxShadow: [
-              BoxShadow(
-                color: usable
-                    ? const Color(0xFF4CAF50).withOpacity(0.45)
-                    : Colors.black.withOpacity(0.18),
-                blurRadius: usable ? 14 : 6,
-                offset: const Offset(0, 4),
-                spreadRadius: usable ? 2 : 0,
+        onTap: () => canShare ? _shareCard(assetPath) : _useCard(assetPath),
+        child: Container(
+          margin: EdgeInsets.symmetric(horizontal: isCompactHeight ? 2.5 : 5.0),
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            clipBehavior: Clip.none,
+            children: [
+              // Wooden Card Stand: card.png
+              Image.asset(
+                'assets/Element Eco Avenger/boardgame_asset/card.png',
+                width: cardWidth * 1.15,
+                height: cardHeight * 1.18,
+                fit: BoxFit.fill,
               ),
+              // The Action Card itself
+              Padding(
+                padding: EdgeInsets.fromLTRB(2, cardHeight * 0.08, 2, 4),
+                child: Container(
+                  width: cardWidth,
+                  height: cardHeight,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    border: canShare
+                        ? Border.all(color: const Color(0xFF4A90D9), width: 2)
+                        : usable
+                        ? Border.all(color: const Color(0xFF4CAF50), width: 2)
+                        : null,
+                    boxShadow: [
+                      if (canShare || usable)
+                        BoxShadow(
+                          color: (canShare
+                                  ? const Color(0xFF4A90D9)
+                                  : const Color(0xFF4CAF50))
+                              .withOpacity(0.4),
+                          blurRadius: 4,
+                          spreadRadius: 1,
+                        ),
+                    ],
+                  ),
+                  child: Opacity(
+                    opacity: (canShare || usable) ? 1.0 : 0.6,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: Image.asset(
+                        assetPath,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          color: Colors.grey.shade300,
+                          child: const Icon(Icons.broken_image, size: 18),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              // USE / SHARE badge
+              if (canShare)
+                Positioned(
+                  top: 1,
+                  right: 1,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4A90D9),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'SHARE',
+                      style: TextStyle(color: Colors.white, fontSize: 6.5, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                )
+              else if (usable)
+                Positioned(
+                  top: 1,
+                  right: 1,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4CAF50),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'USE',
+                      style: TextStyle(color: Colors.white, fontSize: 6.5, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
             ],
           ),
-          child: Opacity(
-            opacity: usable ? 1.0 : 0.5,
+        ),
+      );
+    }).toList();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: cardWidgets,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTokenTrackWooden({bool isCompactHeight = false}) {
+    final boxSize = isCompactHeight ? 24.0 : 44.0;
+
+    // 14 steps palette matching the prototype:
+    // Left: reddish pinks (Crisis) -> Center: white (neutral start) -> Right: greens (Sustainable)
+    final stepColors = [
+      const Color(0xFFD96B6B), // 0: Dark reddish pink
+      const Color(0xFFE88E8E), // 1: Medium pink
+      const Color(0xFFF0A8A8), // 2: Light pink
+      const Color(0xFFF8C6C6), // 3: Very light pink
+      const Color(0xFFFFFFFF), // 4: White (neutral start)
+      const Color(0xFFFFFFFF), // 5: White
+      const Color(0xFFE2ECE0), // 6: Very pale green
+      const Color(0xFFC6DEC2), // 7: Pale green
+      const Color(0xFFA6CEA0), // 8: Light green
+      const Color(0xFF85BE7E), // 9: Green
+      const Color(0xFF6FAC67), // 10: Medium green
+      const Color(0xFF5F9E58), // 11: Rich green
+      const Color(0xFF52904B), // 12: Deep green
+      const Color(0xFF45823E), // 13: Dark green
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(14, (index) {
+          final isCrisisPosition = index == _crisisTokenPosition;
+          final isSustainablePosition = index == _sustainableTokenPosition;
+
+          Widget? tokenWidget;
+          if (isCrisisPosition && isSustainablePosition) {
+            tokenWidget = Row(
+              children: [
+                Expanded(
+                  child: Image.asset(
+                    _planetaryCrisisTokenAssetPath,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                Expanded(
+                  child: Image.asset(
+                    _peaceTokenAssetPath,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ],
+            );
+          } else if (isCrisisPosition) {
+            tokenWidget = Image.asset(
+              _planetaryCrisisTokenAssetPath,
+              fit: BoxFit.contain,
+            );
+          } else if (isSustainablePosition) {
+            tokenWidget = Image.asset(
+              _peaceTokenAssetPath,
+              fit: BoxFit.contain,
+            );
+          }
+
+          final color = stepColors[index.clamp(0, stepColors.length - 1)];
+
+          return Container(
+            width: boxSize,
+            height: boxSize,
+            margin: EdgeInsets.symmetric(horizontal: isCompactHeight ? 2.0 : 4.5),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(3),
+              border: Border.all(
+                color: const Color(0xFF8A5229), // Wooden frame border
+                width: isCompactHeight ? 2.0 : 3.0,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x40000000),
+                  offset: Offset(1, 1),
+                  blurRadius: 1,
+                ),
+              ],
+            ),
+            child: tokenWidget == null
+                ? null
+                : Padding(
+                    padding: EdgeInsets.all(isCompactHeight ? 1.5 : 2.5),
+                    child: tokenWidget,
+                  ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildPhotoDisplay({double? availableH}) {
+    final cardPath = _getEcoCrisisCardPath();
+    final isCompactHeight = MediaQuery.of(context).size.height < 520;
+    final double height = availableH != null
+        ? (availableH - 4).clamp(120.0, 420.0)
+        : (isCompactHeight ? 230.0 : 420.0);
+    final double width = height * (185.0 / 300.0);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: GestureDetector(
+          onTap: _showPhotoPopup,
+          child: Container(
+            decoration: const BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage('assets/Element Eco Avenger/boardgame_asset/left.png'),
+                fit: BoxFit.fill,
+              ),
+            ),
+            padding: EdgeInsets.fromLTRB(
+              width * 0.08,
+              height * 0.10,
+              width * 0.08,
+              height * 0.04,
+            ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
               child: Stack(
+                fit: StackFit.expand,
                 children: [
                   Image.asset(
-                    assetPath,
-                    width: cardWidth,
-                    height: cardHeight,
-                    fit: BoxFit.cover,
+                    cardPath,
+                    fit: BoxFit.fill,
+                    alignment: Alignment.center,
                     errorBuilder: (context, error, stackTrace) {
                       return Container(
-                        color: AppColors.softGray.withOpacity(0.2),
-                        child: const Icon(
-                          Icons.image_not_supported_outlined,
-                          color: Colors.black54,
-                          size: 32,
+                        color: AppColors.softGray.withOpacity(0.15),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.image_not_supported_outlined,
+                                  color: Colors.black38,
+                                  size: 32,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Region: ${gameRound.selectedRegion}\nLevel: ${gameRound.currentEcoCrisisLevel}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.black54,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       );
                     },
                   ),
-                  if (usable)
+                  if (gameRound.difficultyReduction > 0)
                     Positioned(
                       top: 4,
-                      right: 4,
+                      left: 4,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
+                          horizontal: 6,
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4CAF50),
-                          borderRadius: BorderRadius.circular(6),
+                          color: const Color(0xFFD32F2F),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white, width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.4),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
-                        child: const Text(
-                          'USE',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.5,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.arrow_downward_rounded,
+                              color: Colors.white,
+                              size: 10,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              '-${gameRound.difficultyReduction} Level',
+                              style: GoogleFonts.montserrat(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 9,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (selectedCharacter != null)
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: _buildCharacterPassiveBadge(),
+                    ),
+                  if (_showResultFeedback)
+                    Container(
+                      color: Colors.black.withOpacity(0.6),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'USED',
+                              style: GoogleFonts.montserrat(
+                                fontSize: height < 200 ? 20 : 28,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'Tap to clear',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -2498,463 +3603,214 @@ class _GamePlayScreenState extends State<GamePlayScreen>
             ),
           ),
         ),
-      );
-    }).toList();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-      child: Container(
-        height: isCompactHeight ? 136.0 : 192.0,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.black.withOpacity(0.08)),
-        ),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: cardWidgets),
-        ),
       ),
     );
   }
 
-  Widget _buildTokenTrack() {
-    final isCompactHeight = MediaQuery.of(context).size.height < 500;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Container(
-        height: isCompactHeight ? 64.0 : 88.0,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.black.withOpacity(0.08)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          child: Row(
-            children: List.generate(14, (index) {
-              final isCrisisPosition = index == _crisisTokenPosition;
-              final isSustainablePosition = index == _sustainableTokenPosition;
-
-              String? assetPath;
-              if (isCrisisPosition) {
-                assetPath = _planetaryCrisisTokenAssetPath;
-              } else if (isSustainablePosition) {
-                assetPath = _peaceTokenAssetPath;
-              }
-
-              // Calculate color based on progress (red to green)
-              final progress = index / 13; // 0 to 1
-              final hue =
-                  (1 - progress) * 0.0 +
-                  progress * 0.33; // Red (0) to Green (0.33)
-              final tokenColor = HSVColor.fromAHSV(
-                1.0,
-                hue * 360,
-                0.3,
-                0.88,
-              ).toColor();
-
-              return Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: Container(
-                  width: isCompactHeight ? 42.0 : 58.0,
-                  height: isCompactHeight ? 42.0 : 58.0,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: tokenColor,
-                    border: Border.all(
-                      color: isCrisisPosition || isSustainablePosition
-                          ? Colors.black.withOpacity(0.25)
-                          : Colors.black.withOpacity(0.12),
-                      width: isCrisisPosition || isSustainablePosition
-                          ? 3
-                          : 1.5,
-                    ),
-                  ),
-                  child: assetPath == null
-                      ? null
-                      : Padding(
-                          padding: const EdgeInsets.all(6),
-                          child: ClipOval(
-                            child: Image.asset(
-                              assetPath,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Icon(
-                                  Icons.image_not_supported_outlined,
-                                  color: Colors.white70,
-                                  size: 20,
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                ),
-              );
-            }),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPhotoDisplay() {
-    final cardPath = _getEcoCrisisCardPath();
-    final isCompactHeight = MediaQuery.of(context).size.height < 500;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8), // margin kiri-kanan
-      child: SizedBox(
-        width: isCompactHeight ? 180 : 260,
-        child: GestureDetector(
-          onTap: _showPhotoPopup,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.asset(
-                  cardPath,
-                  fit: BoxFit.contain,
-                  alignment: Alignment.center,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: AppColors.softGray.withOpacity(0.15),
-                      child: Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.image_not_supported_outlined,
-                                color: Colors.black38,
-                                size: 48,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Region: ${gameRound.selectedRegion}\nLevel: ${gameRound.currentEcoCrisisLevel}',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black54,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                if (gameRound.difficultyReduction > 0)
-                  Positioned(
-                    top: 132,
-                    left: 4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFD32F2F),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white, width: 2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.4),
-                            blurRadius: 6,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.arrow_downward_rounded,
-                            color: Colors.white,
-                            size: 14,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '-${gameRound.difficultyReduction} Level',
-                            style: GoogleFonts.montserrat(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                // Character Passive Skill Badge
-                if (selectedCharacter != null)
-                  Positioned(
-                    top: 132,
-                    right: 4,
-                    child: _buildCharacterPassiveBadge(),
-                  ),
-                if (_showResultFeedback)
-                  Container(
-                    color: Colors.black.withOpacity(0.6),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'USED',
-                            style: GoogleFonts.montserrat(
-                              fontSize: 40,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                              letterSpacing: 2,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Tap to clear',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCharacterDisplay() {
-    final isCompactHeight = MediaQuery.of(context).size.height < 500;
-    final titlePaddingV = isCompactHeight ? 4.0 : 8.0;
-    final imageHeight = isCompactHeight ? 120.0 : 188.0;
-    final imageWidth = isCompactHeight ? 100.0 : 150.0;
-    final buttonHeight = isCompactHeight ? 32.0 : 46.0;
-    final buttonFontSize = isCompactHeight ? 10.0 : 14.0;
-    final buttonPadding = isCompactHeight ? 4.0 : 7.0;
+  Widget _buildCharacterDisplay({double? availableH}) {
+    final isCompactHeight = MediaQuery.of(context).size.height < 520;
+    final double height = availableH != null
+        ? (availableH - 4).clamp(120.0, 420.0)
+        : (isCompactHeight ? 230.0 : 420.0);
+    final double width = height * (160.0 / 300.0);
+    final isVeryCompact = height < 230;
 
     if (selectedCharacter == null) {
       return SizedBox(
-        width: 244,
+        width: width,
+        height: height,
         child: Container(
-          width: 228,
-          margin: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: AppColors.pureWhite.withOpacity(0.95),
-            borderRadius: BorderRadius.circular(14),
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/Element Eco Avenger/boardgame_asset/right.png'),
+              fit: BoxFit.fill,
+            ),
           ),
-          child: Center(
+          child: const Center(
             child: Icon(
               FeatherIcons.alertCircle,
-              color: AppColors.textSecondary.withOpacity(0.5),
-              size: 36,
+              color: Colors.black26,
+              size: 28,
             ),
           ),
         ),
       );
     }
 
-    return SizedBox(
-      width: 244,
-      child: Container(
-        width: 228,
-        margin: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: AppColors.pureWhite,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white, width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.12),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.symmetric(
-                    vertical: titlePaddingV,
-                    horizontal: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.pureWhite,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      topRight: Radius.circular(12),
-                    ),
-                    border: Border.all(color: Colors.black.withOpacity(0.05)),
-                  ),
-                  child: Center(
-                    child: Text(
-                      selectedCharacter!.title,
-                      style: GoogleFonts.montserrat(
-                        color: AppColors.textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.3,
-                        height: 1,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: isCompactHeight ? 4 : 6,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.asset(
-                      _boardCharacterAssetPath(selectedCharacter!.title),
-                      height: imageHeight,
-                      width: imageWidth,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          height: imageHeight,
-                          width: imageWidth,
-                          color: AppColors.softGray.withOpacity(0.12),
-                          child: const Icon(
-                            FeatherIcons.image,
-                            color: Colors.black54,
-                            size: 32,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-                _buildGameStatsHeader(),
-                Padding(
-                  padding: EdgeInsets.all(buttonPadding),
-                  child: GestureDetector(
-                    onTap: () => _showCharacterSheet(selectedCharacter!),
-                    child: Container(
-                      width: double.infinity,
-                      height: buttonHeight,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: _buttonGreen,
-                        borderRadius: BorderRadius.circular(51),
-                        border: Border.all(color: _buttonBorder, width: 3),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.20),
-                            blurRadius: 0,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        'View Char Sheet',
-                        style: GoogleFonts.montserrat(
-                          color: Colors.black,
-                          fontSize: buttonFontSize,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
-                          height: 1,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(8, 0, 8, buttonPadding),
-                  child: GestureDetector(
-                    onTap: (_isMultiplayer && !_isMyTurn) ? null : _showSpinWheel,
-                    child: AnimatedOpacity(
-                      opacity: (_isMultiplayer && !_isMyTurn) ? 0.4 : 1.0,
-                      duration: const Duration(milliseconds: 200),
-                      child: Container(
-                      width: double.infinity,
-                      height: buttonHeight,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: _buttonGreen,
-                        borderRadius: BorderRadius.circular(51),
-                        border: Border.all(color: _buttonBorder, width: 3),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.20),
-                            blurRadius: 0,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        'Solve Global Issue',
-                        style: GoogleFonts.montserrat(
-                          color: Colors.black,
-                          fontSize: buttonFontSize,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
-                          height: 1,
-                        ),
-                      ),
-                    ),
-                  ),
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(8, 0, 8, buttonPadding),
-                  child: GestureDetector(
-                    onTap: _handleMapButtonTap,
-                    child: Container(
-                      width: double.infinity,
-                      height: buttonHeight,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: _buttonGreen,
-                        borderRadius: BorderRadius.circular(51),
-                        border: Border.all(color: _buttonBorder, width: 3),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.20),
-                            blurRadius: 0,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        'Check the Map',
-                        style: GoogleFonts.montserrat(
-                          color: Colors.black,
-                          fontSize: buttonFontSize,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
-                          height: 1,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: Container(
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/Element Eco Avenger/boardgame_asset/right.png'),
+              fit: BoxFit.fill,
             ),
           ),
+          padding: EdgeInsets.fromLTRB(
+            width * 0.07,
+            height * 0.03,
+            width * 0.07,
+            height * 0.03,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // 1. Top pill badge with role name:
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(vertical: isVeryCompact ? 1.0 : 2.0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDCDCDC),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.black, width: 1.5),
+                ),
+                child: Text(
+                  selectedCharacter!.title.toLowerCase(),
+                  style: GoogleFonts.fredoka(
+                    fontSize: isVeryCompact ? 9.0 : (isCompactHeight ? 10.5 : 14.0),
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+
+              // 2. Character Avatar:
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 1),
+                  child: Image.asset(
+                    _boardCharacterAssetPath(selectedCharacter!.title),
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const Icon(Icons.person, size: 36, color: Colors.black38),
+                  ),
+                ),
+              ),
+
+              // 3. Win / Loose pills row:
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: EdgeInsets.symmetric(vertical: isVeryCompact ? 1.0 : 2.0),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDCDCDC),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.black, width: 1.5),
+                      ),
+                      child: Text(
+                        'win ${gameRound.successCount}',
+                        style: GoogleFonts.fredoka(
+                          fontSize: isVeryCompact ? 8.5 : (isCompactHeight ? 9.5 : 12.0),
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 3),
+                  Expanded(
+                    child: Container(
+                      padding: EdgeInsets.symmetric(vertical: isVeryCompact ? 1.0 : 2.0),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDCDCDC),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.black, width: 1.5),
+                      ),
+                      child: Text(
+                        'loose ${gameRound.failCount}',
+                        style: GoogleFonts.fredoka(
+                          fontSize: isVeryCompact ? 8.5 : (isCompactHeight ? 9.5 : 12.0),
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: isVeryCompact ? 1 : 2),
+
+              // 4. Action Buttons (pill style with dark borders)
+              _buildPrototypePillButton(
+                label: 'view character sheet',
+                isCompact: isCompactHeight,
+                isVeryCompact: isVeryCompact,
+                onTap: () => _showCharacterSheet(selectedCharacter!),
+              ),
+              _buildPrototypePillButton(
+                label: 'solve global issues',
+                isCompact: isCompactHeight,
+                isVeryCompact: isVeryCompact,
+                enabled: !(_isMultiplayer && !_isMyTurn),
+                onTap: (_isMultiplayer && !_isMyTurn) ? null : _showSpinWheel,
+              ),
+              _buildPrototypePillButton(
+                label: 'check the global issues',
+                isCompact: isCompactHeight,
+                isVeryCompact: isVeryCompact,
+                onTap: _handleMapButtonTap,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrototypePillButton({
+    required String label,
+    required VoidCallback? onTap,
+    bool enabled = true,
+    required bool isCompact,
+    bool isVeryCompact = false,
+  }) {
+    return Padding(
+      padding: EdgeInsets.only(top: isVeryCompact ? 1.5 : 2.5),
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        child: AnimatedOpacity(
+          opacity: enabled ? 1.0 : 0.4,
+          duration: const Duration(milliseconds: 200),
+          child: Container(
+            width: double.infinity,
+            height: isVeryCompact ? 19.0 : (isCompact ? 23.0 : 31.0),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFDCDCDC),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.black, width: 1.5),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x33000000),
+                  offset: Offset(0, 1),
+                  blurRadius: 1,
+                ),
+              ],
+            ),
+            child: Text(
+              label,
+              style: GoogleFonts.fredoka(
+                fontSize: isVeryCompact ? 7.8 : (isCompact ? 8.8 : 11.5),
+                fontWeight: FontWeight.w700,
+                color: Colors.black,
+                letterSpacing: 0.1,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -2988,7 +3844,11 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   return Container(
                     color: AppColors.softGray.withOpacity(0.15),
                     child: const Center(
-                      child: Icon(Icons.image_not_supported_outlined, color: Colors.black38, size: 32),
+                      child: Icon(
+                        Icons.image_not_supported_outlined,
+                        color: Colors.black38,
+                        size: 32,
+                      ),
                     ),
                   );
                 },
@@ -2998,7 +3858,10 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   bottom: 4,
                   left: 4,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFD32F2F),
                       borderRadius: BorderRadius.circular(12),
@@ -3007,12 +3870,18 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.arrow_downward_rounded, color: Colors.white, size: 10),
+                        const Icon(
+                          Icons.arrow_downward_rounded,
+                          color: Colors.white,
+                          size: 10,
+                        ),
                         const SizedBox(width: 2),
                         Text(
                           '-${gameRound.difficultyReduction}',
                           style: GoogleFonts.montserrat(
-                            color: Colors.white, fontWeight: FontWeight.w800, fontSize: 9,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 9,
                           ),
                         ),
                       ],
@@ -3032,7 +3901,9 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     child: Text(
                       'USED',
                       style: GoogleFonts.montserrat(
-                        fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
                       ),
                     ),
                   ),
@@ -3054,7 +3925,11 @@ class _GamePlayScreenState extends State<GamePlayScreen>
           borderRadius: BorderRadius.circular(10),
         ),
         child: const Center(
-          child: Icon(FeatherIcons.alertCircle, color: Colors.black26, size: 24),
+          child: Icon(
+            FeatherIcons.alertCircle,
+            color: Colors.black26,
+            size: 24,
+          ),
         ),
       );
     }
@@ -3083,15 +3958,19 @@ class _GamePlayScreenState extends State<GamePlayScreen>
             decoration: BoxDecoration(
               color: AppColors.pureWhite,
               borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(9), topRight: Radius.circular(9),
+                topLeft: Radius.circular(9),
+                topRight: Radius.circular(9),
               ),
               border: Border.all(color: Colors.black.withOpacity(0.05)),
             ),
             child: Text(
               selectedCharacter!.title,
               style: GoogleFonts.montserrat(
-                color: AppColors.textPrimary, fontSize: 10, fontWeight: FontWeight.w700,
-                height: 1, letterSpacing: 0.2,
+                color: AppColors.textPrimary,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                height: 1,
+                letterSpacing: 0.2,
               ),
               textAlign: TextAlign.center,
               maxLines: 1,
@@ -3111,7 +3990,11 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   errorBuilder: (context, error, stackTrace) {
                     return Container(
                       color: AppColors.softGray.withOpacity(0.12),
-                      child: const Icon(FeatherIcons.image, color: Colors.black38, size: 20),
+                      child: const Icon(
+                        FeatherIcons.image,
+                        color: Colors.black38,
+                        size: 20,
+                      ),
                     );
                   },
                 ),
@@ -3133,12 +4016,21 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: _buttonBorder, width: 2),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 0, offset: const Offset(0, 3)),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 0,
+                      offset: const Offset(0, 3),
+                    ),
                   ],
                 ),
                 child: Text(
                   'View Sheet',
-                  style: GoogleFonts.montserrat(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w700, height: 1),
+                  style: GoogleFonts.montserrat(
+                    color: Colors.black,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    height: 1,
+                  ),
                 ),
               ),
             ),
@@ -3159,12 +4051,21 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: _buttonBorder, width: 2),
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 0, offset: const Offset(0, 3)),
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 0,
+                        offset: const Offset(0, 3),
+                      ),
                     ],
                   ),
                   child: Text(
                     'Solve Issue',
-                    style: GoogleFonts.montserrat(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w700, height: 1),
+                    style: GoogleFonts.montserrat(
+                      color: Colors.black,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
                   ),
                 ),
               ),
@@ -3183,12 +4084,21 @@ class _GamePlayScreenState extends State<GamePlayScreen>
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: _buttonBorder, width: 2),
                   boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 0, offset: const Offset(0, 3)),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 0,
+                      offset: const Offset(0, 3),
+                    ),
                   ],
                 ),
                 child: Text(
                   'Check Map',
-                  style: GoogleFonts.montserrat(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w700, height: 1),
+                  style: GoogleFonts.montserrat(
+                    color: Colors.black,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    height: 1,
+                  ),
                 ),
               ),
             ),

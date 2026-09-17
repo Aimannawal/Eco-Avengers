@@ -101,11 +101,11 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
         children: [
           // Background
           Image.asset(
-            'assets/background/kayu.png',
+            'assets/Element Eco Avenger/Start page/bg.png',
             fit: BoxFit.cover,
             filterQuality: FilterQuality.high,
           ),
-          Container(color: Colors.black.withOpacity(0.4)),
+          Container(color: Colors.black.withOpacity(0.2)),
           
           SafeArea(
             child: Center(
@@ -120,7 +120,7 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
                     border: Border.all(color: const Color(0xFF111111), width: 3),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
+                        color: Colors.black.withOpacity(0.25),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -131,17 +131,18 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
                     children: [
                       // Logo/Title
                       Image.asset(
-                        'assets/logo/logo.png',
+                        'assets/Element Eco Avenger/Start page/Logo eco avenger.png',
                         height: isCompact ? 50 : 70,
+                        fit: BoxFit.contain,
                       ),
                       SizedBox(height: isCompact ? 12 : 24),
                       Text(
                         _isLogin ? 'LOGIN' : 'REGISTER',
-                        style: GoogleFonts.montserrat(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w900,
-                          color: const Color(0xFF4A6741),
-                          letterSpacing: 2,
+                        style: GoogleFonts.fredoka(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF1E88E5),
+                          letterSpacing: 1.5,
                         ),
                       ),
                       SizedBox(height: isCompact ? 12 : 24),
@@ -162,9 +163,9 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
                               Expanded(
                                 child: Text(
                                   _errorMessage!,
-                                  style: GoogleFonts.montserrat(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
                                     color: const Color(0xFFEB5757),
                                   ),
                                 ),
@@ -208,26 +209,28 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _submit,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFA5C18A),
-                            foregroundColor: Colors.black,
+                            backgroundColor: const Color(0xFFF5C842),
+                            foregroundColor: const Color(0xFF111111),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
-                              side: const BorderSide(color: Color(0xFF111111), width: 2),
+                              side: const BorderSide(color: Color(0xFF111111), width: 2.5),
                             ),
                             elevation: 0,
+                            shadowColor: const Color(0xFF8B6914),
                           ),
                           child: _isLoading
                               ? const SizedBox(
                                   width: 24,
                                   height: 24,
-                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
+                                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF111111)),
                                 )
                               : Text(
                                   _isLogin ? 'LOGIN' : 'REGISTER',
-                                  style: GoogleFonts.montserrat(
+                                  style: GoogleFonts.fredoka(
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w600,
                                     letterSpacing: 1,
+                                    color: const Color(0xFF111111),
                                   ),
                                 ),
                         ),
@@ -240,10 +243,10 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
                         onPressed: _toggleMode,
                         child: Text(
                           _isLogin ? 'Belum punya akun? Register' : 'Sudah punya akun? Login',
-                          style: GoogleFonts.montserrat(
+                          style: GoogleFonts.outfit(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
-                            color: const Color(0xFF4A6741),
+                            color: const Color(0xFF1E88E5),
                           ),
                         ),
                       ),
@@ -256,10 +259,10 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
                             (route) => false,
                           );
                         },
-                        icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                        icon: const Icon(Icons.arrow_back_rounded, size: 16, color: Colors.black54),
                         label: Text(
                           'Kembali ke Beranda',
-                          style: GoogleFonts.montserrat(
+                          style: GoogleFonts.outfit(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                             color: Colors.black54,
@@ -291,12 +294,12 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
       inputFormatters: isNumber ? [FilteringTextInputFormatter.digitsOnly] : [],
       maxLength: maxLength,
       obscureText: obscureText,
-      style: GoogleFonts.montserrat(fontWeight: FontWeight.w600),
+      style: GoogleFonts.outfit(fontWeight: FontWeight.w600, fontSize: 14),
       decoration: InputDecoration(
         counterText: '',
         labelText: label,
-        labelStyle: GoogleFonts.montserrat(fontWeight: FontWeight.w600, color: Colors.black54),
-        prefixIcon: Icon(icon, color: const Color(0xFF4A6741)),
+        labelStyle: GoogleFonts.outfit(fontWeight: FontWeight.w500, color: Colors.black54, fontSize: 13),
+        prefixIcon: Icon(icon, color: const Color(0xFF1E88E5)),
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -310,7 +313,7 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF4A6741), width: 2),
+          borderSide: const BorderSide(color: Color(0xFF1E88E5), width: 2),
         ),
       ),
     );

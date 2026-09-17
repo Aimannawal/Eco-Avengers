@@ -2,6 +2,27 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 
+// Action Card Model
+class ActionCard {
+  final String id;
+  final String title;
+  final String description;
+  final String? iconAssetPath;
+  final Color color;
+  final List<TokenEffect> effects;
+  final bool isSpecial;
+
+  ActionCard({
+    required this.id,
+    required this.title,
+    required this.description,
+    this.iconAssetPath,
+    required this.color,
+    required this.effects,
+    this.isSpecial = false,
+  });
+}
+
 // Token Effect
 class TokenEffect {
   final String tokenType; // 'energy', 'peace', 'crisis'

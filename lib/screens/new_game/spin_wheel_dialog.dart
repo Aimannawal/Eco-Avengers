@@ -4,14 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/app_colors.dart';
-import '../../theme/app_theme.dart';
 
 class SpinWheelDialog extends StatefulWidget {
   final Function(String)? onResult;
   final String difficulty;
+  final bool isMultiplayer;
 
-  const SpinWheelDialog({Key? key, this.onResult, this.difficulty = 'normal'})
-    : super(key: key);
+  const SpinWheelDialog({
+    Key? key,
+    this.onResult,
+    this.difficulty = 'normal',
+    this.isMultiplayer = false,
+  }) : super(key: key);
 
   @override
   State<SpinWheelDialog> createState() => _SpinWheelDialogState();
@@ -62,7 +66,6 @@ class _SpinWheelDialogState extends State<SpinWheelDialog>
   }
 
   List<String> _getSegmentsByDifficulty(String difficulty) {
-
     switch (difficulty.toLowerCase()) {
       case 'easy':
         return ['1', '2', 'fail', '4', '3', 'fail'];
@@ -72,6 +75,33 @@ class _SpinWheelDialogState extends State<SpinWheelDialog>
       default:
         return ['1', '2', 'fail', '3', '4', 'fail'];
     }
+  }
+
+  /// Returns a weighted random index.
+  /// In multiplayer, 'fail' segments have virtually zero chance (near impossible),
+  /// and higher numbers (3, 4) are favored to lower difficulty.
+  int _weightedRandomIndex() {
+    final weights = _segments.map((s) {
+      if (s == 'fail') {
+        // Di multiplayer, probabilitas FAIL ditekan hingga tingkat mendekati mustahil (~0.002%)
+        return widget.isMultiplayer ? 0.0001 : 1.0;
+      }
+      if (widget.isMultiplayer) {
+        final num = int.tryParse(s) ?? 1;
+        // Beri bobot lebih tinggi pada angka 3 dan 4 agar pemain multiplayer lebih mudah menang
+        if (num >= 3) return 1.8;
+        return 1.0;
+      }
+      return 1.0;
+    }).toList();
+
+    final totalWeight = weights.fold(0.0, (a, b) => a + b);
+    double pick = _random.nextDouble() * totalWeight;
+    for (int i = 0; i < weights.length; i++) {
+      pick -= weights[i];
+      if (pick <= 0) return i;
+    }
+    return _segments.length - 1;
   }
 
   List<Color> get _resolvedWheelColors {
@@ -89,8 +119,8 @@ class _SpinWheelDialogState extends State<SpinWheelDialog>
   Future<void> _spin() async {
     if (_isSpinning) return;
 
-    // 1. Pilih indeks segment secara acak terlebih dahulu
-    final int randomIndex = _random.nextInt(_segments.length);
+    // 1. Pick a weighted random index (fail is less likely in multiplayer)
+    final int randomIndex = _weightedRandomIndex();
 
     // 2. Hitung sudut yang dibutuhkan agar segment tersebut pas berada di posisi atas (pointer)
     final double segmentAngle = 2 * math.pi / _segments.length;

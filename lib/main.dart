@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'services/supabase_service.dart';
+import 'services/sound_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,6 +14,8 @@ void main() async {
   // Inisialisasi Supabase sekali sebelum runApp
   await SupabaseService.initialize();
   runApp(const MyApp());
+  // Inisialisasi backsound di background tanpa memblokir render UI
+  SoundService.instance.init();
 }
 
 

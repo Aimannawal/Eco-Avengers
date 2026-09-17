@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -247,7 +246,7 @@ class _ImagePositioningDialogState extends State<ImagePositioningDialog> {
                     const SizedBox(width: 8),
                     Text(
                       'Geser & Zoom',
-                      style: GoogleFonts.montserrat(
+                      style: GoogleFonts.outfit(
                         color: Colors.white,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -330,10 +329,10 @@ class _ImagePositioningDialogState extends State<ImagePositioningDialog> {
             const SizedBox(width: 8),
             Text(
               label,
-              style: GoogleFonts.montserrat(
+              style: GoogleFonts.fredoka(
                 color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],

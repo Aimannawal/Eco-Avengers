@@ -7,7 +7,7 @@ class AppConstants {
   AppConstants._();
 
   // ── Room Settings ─────────────────────────────────────────
-  static const int minPlayers = 2;
+  static const int minPlayers = 3;
   static const int maxPlayers = 5;
   static const int roomCodeLength = 6;
 

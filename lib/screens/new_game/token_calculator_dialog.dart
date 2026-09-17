@@ -54,7 +54,7 @@ class _TokenCalculatorDialogState extends State<TokenCalculatorDialog> {
         }
       }
     }
-    totalValue = newTotal.clamp(0, 999);
+    totalValue = newTotal.clamp(0, 999).toInt();
   }
 
   Color _getTokenColor() {
@@ -66,7 +66,7 @@ class _TokenCalculatorDialogState extends State<TokenCalculatorDialog> {
       case 'crisis':
         return const Color(0xFFE74C3C);
       default:
-        return AppColors.primaryDarkGreen;
+        return const Color(0xFF2E7D32);
     }
   }
 
@@ -96,8 +96,9 @@ class _TokenCalculatorDialogState extends State<TokenCalculatorDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Container(
         decoration: BoxDecoration(
-          color: AppColors.pureWhite,
+          color: const Color(0xFFFAF7F2),
           borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFF111111), width: 3),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.3),
@@ -362,72 +363,76 @@ class _TokenCalculatorDialogState extends State<TokenCalculatorDialog> {
                                   ]
                                 : [],
                           ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Column(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: [
-                                // Card title
-                                Expanded(
-                                  child: Text(
-                                    card.title,
-                                    style: AppTheme.subtitleRegular
-                                        .copyWith(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: card.color,
+                          child: Stack(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Column(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    // Card title
+                                    Expanded(
+                                      child: Text(
+                                        card.title,
+                                        style: AppTheme.subtitleRegular
+                                            .copyWith(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: card.color,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                // Effect badge
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: effect.modifier < 0
-                                        ? const Color(0xFFE74C3C)
-                                        : const Color(0xFF2ECC71),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    '${effect.modifier > 0 ? '+' : ''}${effect.modifier} ${tokenLabel}',
-                                    style:
-                                        AppTheme.captionText.copyWith(
-                                      fontSize: 10,
-                                      color: AppColors.pureWhite,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                // Selection indicator
-                                if (isSelected)
-                                  Positioned(
-                                    top: 0,
-                                    right: 0,
-                                    child: Container(
-                                      width: 24,
-                                      height: 24,
+                                    const SizedBox(height: 6),
+                                    // Effect badge
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
                                       decoration: BoxDecoration(
-                                        color: card.color,
-                                        shape: BoxShape.circle,
+                                        color: effect.modifier < 0
+                                            ? const Color(0xFFE74C3C)
+                                            : const Color(0xFF2ECC71),
+                                        borderRadius: BorderRadius.circular(6),
                                       ),
-                                      child: const Icon(
-                                        Icons.check,
-                                        size: 14,
-                                        color: Colors.white,
+                                      child: Text(
+                                        '${effect.modifier > 0 ? '+' : ''}${effect.modifier} $tokenLabel',
+                                        style:
+                                            AppTheme.captionText.copyWith(
+                                          fontSize: 10,
+                                          color: AppColors.pureWhite,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ),
+                                  ],
+                                ),
+                              ),
+                              // Selection indicator
+                              if (isSelected)
+                                Positioned(
+                                  top: 6,
+                                  right: 6,
+                                  child: Container(
+                                    width: 22,
+                                    height: 22,
+                                    decoration: BoxDecoration(
+                                      color: card.color,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.check,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
                                   ),
-                              ],
-                            ),
+                                ),
+                            ],
                           ),
                         ),
                       );

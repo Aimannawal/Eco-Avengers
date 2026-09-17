@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_theme.dart';
 
@@ -12,14 +13,14 @@ class TokenReferenceDialog extends StatelessWidget {
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Container(
         decoration: BoxDecoration(
-          color: AppColors.pureWhite,
+          color: const Color(0xFFFAF7F2),
           borderRadius: BorderRadius.circular(24),
-          boxShadow: [
+          border: Border.all(color: const Color(0xFF111111), width: 3),
+          boxShadow: const [
             BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 32,
-              offset: const Offset(0, 16),
-              spreadRadius: 4,
+              color: Colors.black26,
+              blurRadius: 20,
+              offset: Offset(0, 10),
             ),
           ],
         ),
@@ -35,11 +36,12 @@ class TokenReferenceDialog extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Token Reference',
-                      style: AppTheme.titleMedium.copyWith(
-                        fontSize: 24,
-                        color: AppColors.primaryDarkGreen,
+                      'TOKEN REFERENCE',
+                      style: GoogleFonts.fredoka(
+                        fontSize: 20,
+                        color: const Color(0xFF111111),
                         fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
                       ),
                     ),
                     GestureDetector(
@@ -47,13 +49,13 @@ class TokenReferenceDialog extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
-                          color: AppColors.textSecondary.withOpacity(0.1),
+                          color: Colors.black.withOpacity(0.08),
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(
+                        child: const Icon(
                           Icons.close_rounded,
-                          size: 24,
-                          color: AppColors.textSecondary,
+                          size: 22,
+                          color: Color(0xFF111111),
                         ),
                       ),
                     ),

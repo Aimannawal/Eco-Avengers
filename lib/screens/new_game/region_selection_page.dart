@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../theme/app_colors.dart';
 import 'game_play_screen.dart';
 
 class RegionSelectionPage extends StatefulWidget {
@@ -26,24 +26,22 @@ class RegionSelectionPage extends StatefulWidget {
 
 class _RegionSelectionPageState extends State<RegionSelectionPage>
     with SingleTickerProviderStateMixin {
-  static const List<String> _regions = [
-    'Africa',
-    'Asia',
-    'Europe',
-    'North America',
-    'Central & South America',
-  ];
-
-  static const Map<String, Color> _regionColors = {
-    'Africa': Color(0xFFED9B3B),
-    'Asia': Color(0xFF4F7DBA),
-    'Europe': Color(0xFF38A3A5),
-    'North America': Color(0xFFF06292),
-    'Central & South America': Color(0xFFB07D54),
+  
+  // Percentage-based bounding boxes for the 6 regions on the scroll map.
+  // Format: [left, top, width, height] as fractions of the image's dimensions (0.0 to 1.0).
+  static const Map<String, List<double>> _regionHitboxes = {
+    'North America': [0.10, 0.30, 0.26, 0.20],
+    'Europe': [0.44, 0.20, 0.24, 0.20],
+    'Asia': [0.70, 0.26, 0.23, 0.20],
+    'Central & South America': [0.20, 0.58, 0.25, 0.20],
+    'Africa': [0.42, 0.44, 0.24, 0.20],
+    'Oceania': [0.68, 0.62, 0.24, 0.20],
   };
 
   late final AnimationController _controller;
   late final Animation<double> _fadeAnimation;
+  
+  String? _selectedRegion;
 
   @override
   void initState() {
@@ -65,183 +63,195 @@ class _RegionSelectionPageState extends State<RegionSelectionPage>
     super.dispose();
   }
 
-  void _selectRegion(String region) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => GamePlayScreen(
-          selectedCharacterId: widget.selectedCharacterId,
-          selectedCharacterName: widget.selectedCharacterName,
-          selectedDifficulty: widget.difficulty,
-          characterAccentColor: widget.characterAccentColor,
-          characterAssetPath: widget.characterAssetPath,
-          selectedRegion: region,
+  void _onRegionTap(String region) {
+    if (_selectedRegion != null) return; // Prevent multiple taps
+    
+    setState(() {
+      _selectedRegion = region;
+    });
+
+    // Wait a brief moment to show the pin animation, then navigate
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => GamePlayScreen(
+            selectedCharacterId: widget.selectedCharacterId,
+            selectedCharacterName: widget.selectedCharacterName,
+            selectedDifficulty: widget.difficulty,
+            characterAccentColor: widget.characterAccentColor,
+            characterAssetPath: widget.characterAssetPath,
+            selectedRegion: region,
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final isCompact = size.height < 500;
+    
+    final double grassHeight = isCompact ? size.height * 0.25 : size.height * 0.18;
+
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
+      backgroundColor: Colors.black, // Fallback
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset(
-            'assets/background/select-char.png',
-            fit: BoxFit.cover,
-            alignment: Alignment.center,
-            filterQuality: FilterQuality.high,
+          // 1. Water Background
+          Positioned.fill(
+            child: Container(
+              decoration: const BoxDecoration(
+                image: DecorationImage(
+                  image: AssetImage('assets/Element Eco Avenger/Multiplayer page/background (2).png'),
+                  repeat: ImageRepeat.repeat,
+                ),
+              ),
+            ),
           ),
-          Container(color: Colors.black.withOpacity(0.12)),
+          
+          // 2. Grass Foreground at the bottom
+          Positioned(
+            bottom: -5,
+            left: -10,
+            right: -10,
+            child: Image.asset(
+              'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_083830_0000.png',
+              height: grassHeight,
+              fit: BoxFit.cover,
+            ),
+          ),
+
+          // 3. Main Content Layer
           SafeArea(
             child: FadeTransition(
               opacity: _fadeAnimation,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isMobile = constraints.maxHeight < 500;
-                  final titleSize = isMobile ? 18.0 : 24.0;
-                  final topGap = isMobile ? 8.0 : 32.0;
-                  final cardVertPad = isMobile ? 8.0 : 16.0;
-                  final cardFontSize = isMobile ? 14.0 : 18.0;
-                  final hPad = isMobile ? 12.0 : 16.0;
-                  final vPad = isMobile ? 8.0 : 24.0;
-                  final bottomGap = isMobile ? 6.0 : 12.0;
-
-                  return Padding(
-                    padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: 20,
+                    bottom: grassHeight * 0.5, // keep above grass
+                    left: 20,
+                    right: 20,
+                  ),
+                  child: AspectRatio(
+                    aspectRatio: 1.25, // Rough aspect ratio of the 16.png map
+                    child: Stack(
+                      clipBehavior: Clip.none,
                       children: [
-                        Text(
-                          'SELECT REGION',
-                          style: GoogleFonts.montserrat(
-                            fontSize: titleSize,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: 1.2,
+                        // The map scroll image
+                        Positioned.fill(
+                          child: Image.asset(
+                            'assets/Element Eco Avenger/map/image-removebg-preview (16).png',
+                            fit: BoxFit.contain,
                           ),
-                          textAlign: TextAlign.center,
                         ),
-                        SizedBox(height: topGap),
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: _regions.length,
-                            itemBuilder: (context, index) {
-                              final region = _regions[index];
-                              final color = _regionColors[region] ?? AppColors.secondaryGreen;
-
-                              return Padding(
-                                padding: EdgeInsets.only(bottom: bottomGap),
-                                child: _RegionCard(
-                                  region: region,
-                                  color: color,
-                                  cardVertPad: cardVertPad,
-                                  cardFontSize: cardFontSize,
-                                  onTap: () => _selectRegion(region),
-                                ),
+                        
+                        // Hitboxes and Pins
+                        Positioned.fill(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final w = constraints.maxWidth;
+                              final h = constraints.maxHeight;
+                              
+                              return Stack(
+                                children: _regionHitboxes.entries.map((entry) {
+                                  final regionName = entry.key;
+                                  final coords = entry.value;
+                                  final left = coords[0] * w;
+                                  final top = coords[1] * h;
+                                  final width = coords[2] * w;
+                                  final height = coords[3] * h;
+                                  
+                                  final isSelected = _selectedRegion == regionName;
+                                  
+                                  return Positioned(
+                                    left: left,
+                                    top: top,
+                                    width: width,
+                                    height: height,
+                                    child: GestureDetector(
+                                      onTap: () => _onRegionTap(regionName),
+                                      behavior: HitTestBehavior.opaque,
+                                      child: Stack(
+                                        clipBehavior: Clip.none,
+                                        alignment: Alignment.center,
+                                        children: [
+                                          // Debug semi-transparent color if you want to see the hitboxes:
+                                          // Container(color: Colors.red.withOpacity(0.3)),
+                                          
+                                          // The Red Pin
+                                          if (isSelected)
+                                            Positioned(
+                                              // Adjust pin slightly above the center
+                                              top: -height * 0.1,
+                                              child: TweenAnimationBuilder<double>(
+                                                tween: Tween(begin: 0.0, end: 1.0),
+                                                duration: const Duration(milliseconds: 300),
+                                                curve: Curves.elasticOut,
+                                                builder: (context, value, child) {
+                                                  return Transform.translate(
+                                                    offset: Offset(0, -20 * (1 - value)),
+                                                    child: Transform.scale(
+                                                      scale: value,
+                                                      child: child,
+                                                    ),
+                                                  );
+                                                },
+                                                child: Image.asset(
+                                                  'assets/Element Eco Avenger/map/image-removebg-preview (17).png',
+                                                  width: isCompact ? 30 : 45,
+                                                  fit: BoxFit.contain,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
                               );
                             },
                           ),
                         ),
+                        
+                        // 4. Close Button (Red X)
+                        Positioned(
+                          top: isCompact ? -5 : 5,
+                          right: isCompact ? -5 : 15,
+                          child: GestureDetector(
+                            onTap: () {
+                              if (_selectedRegion == null) {
+                                Navigator.of(context).pop();
+                              }
+                            },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.black, width: 2),
+                                boxShadow: const [
+                                  BoxShadow(color: Colors.black38, offset: Offset(2, 2), blurRadius: 4),
+                                ],
+                              ),
+                              child: const CircleAvatar(
+                                radius: 18,
+                                backgroundColor: Colors.red,
+                                child: Icon(Icons.close, color: Colors.white, size: 24, weight: 800),
+                              ),
+                            ),
+                          ),
+                        ),
+                        
                       ],
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _RegionCard extends StatefulWidget {
-  final String region;
-  final Color color;
-  final VoidCallback onTap;
-  final double cardVertPad;
-  final double cardFontSize;
-
-  const _RegionCard({
-    required this.region,
-    required this.color,
-    required this.onTap,
-    this.cardVertPad = 16.0,
-    this.cardFontSize = 18.0,
-  });
-
-  @override
-  State<_RegionCard> createState() => _RegionCardState();
-}
-
-class _RegionCardState extends State<_RegionCard> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: widget.cardVertPad),
-        decoration: BoxDecoration(
-          color: widget.color.withOpacity(_pressed ? 0.28 : 0.18),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: widget.color.withOpacity(0.4),
-            width: 2,
-          ),
-          boxShadow: [
-            if (_pressed)
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 8,
-              height: widget.cardVertPad * 2.4,
-              decoration: BoxDecoration(
-                color: widget.color,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                widget.region,
-                style: GoogleFonts.montserrat(
-                  fontSize: widget.cardFontSize,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-            Icon(
-              Icons.arrow_forward_ios,
-              color: Colors.white.withOpacity(0.6),
-              size: 16,
-            ),
-          ],
-        ),
       ),
     );
   }

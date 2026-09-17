@@ -129,18 +129,21 @@ class LeaderboardService {
     }
     
     if (mode != null) {
-      query = query.eq('mode', mode);
+      if (mode == 'multiplayer') {
+        query = query.like('mode', 'multiplayer%');
+      } else {
+        query = query.eq('mode', mode);
+      }
     } else if (difficulty?.toLowerCase() == 'multiplayer') {
-      query = query.eq('mode', 'multiplayer');
+      query = query.like('mode', 'multiplayer%');
     }
 
     final data = await query.order('score', ascending: false).limit(limit);
 
-    return (data as List).map((e) {
+    final rawList = (data as List).map((e) {
       final ppMap = e['player_profiles'] as Map<String, dynamic>?;
       if (ppMap != null) {
         final pp = PlayerProfile.fromMap(ppMap);
-        // override bestScore with this specific game's score
         return PlayerProfile(
           id: pp.id,
           playerId: pp.playerId,
@@ -153,28 +156,46 @@ class LeaderboardService {
           totalWins: pp.totalWins,
           totalLosses: pp.totalLosses,
           totalBadges: pp.totalBadges,
-          bestScore: (e['score'] as num?)?.toInt() ?? pp.bestScore,
+          bestScore: (e['score'] as num?)?.toInt() ?? 0,
           badges: pp.badges,
           createdAt: pp.createdAt,
           updatedAt: pp.updatedAt,
         );
-      } else {
-        // fallback if no profile found
-        return PlayerProfile(
-          id: '',
-          playerId: e['player_id'],
-          displayName: e['player_name'] ?? 'Player',
-          character: e['character'] as String?,
-          totalWins: 0,
-          totalLosses: 0,
-          totalBadges: 0,
-          bestScore: (e['score'] as num?)?.toInt() ?? 0,
-          badges: const {},
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-        );
       }
+      return PlayerProfile(
+        id: '',
+        playerId: e['player_id'] as String,
+        displayName: e['player_name'] as String? ?? 'Player',
+        totalWins: 0,
+        totalLosses: 0,
+        totalBadges: 0,
+        bestScore: (e['score'] as num?)?.toInt() ?? 0,
+        badges: const {},
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
     }).toList();
+
+    // Group by playerId to get unique players (keep the highest score since it's already sorted descending)
+    final uniquePlayers = <String, PlayerProfile>{};
+    for (final p in rawList) {
+      if (!uniquePlayers.containsKey(p.playerId)) {
+        uniquePlayers[p.playerId] = p;
+      }
+    }
+    
+    return uniquePlayers.values.toList();
+  }
+
+  /// Ambil detail match multiplayer berdasarkan room id
+  Future<List<GameResult>> getMultiplayerMatchDetails(String roomId) async {
+    final data = await _client
+        .from(SupabaseConstants.tableGameResults)
+        .select('*, player_profiles(avatar_url)')
+        .eq('mode', 'multiplayer_$roomId')
+        .order('score', ascending: false); // order by score for MVP
+
+    return (data as List).map((e) => GameResult.fromMap(e as Map<String, dynamic>)).toList();
   }
 
   /// Ambil profil satu player

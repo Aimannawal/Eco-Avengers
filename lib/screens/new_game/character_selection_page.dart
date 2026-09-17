@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -45,12 +44,11 @@ class CharacterSelectionPage extends StatefulWidget {
 }
 
 class _CharacterSelectionPageState extends State<CharacterSelectionPage>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _fadeAnimation;
-
-  static const Color _borderColor = Color(0xFF111111);
-  static const Color _feltColor = Color(0xFF6A9073);
+    with TickerProviderStateMixin {
+  late final AnimationController _fadeCtrl;
+  late final Animation<double> _fadeAnim;
+  late final AnimationController _floatCtrl;
+  late final Animation<double> _floatAnim;
 
   bool _isMultiplayer = false;
   bool _characterSelected = false;
@@ -64,15 +62,17 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
     _isMultiplayer = widget.multiplayerRoomId != null;
     _players = widget.multiplayerPlayers ?? [];
 
-    _controller = AnimationController(
+    _fadeCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 450),
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOut,
-    );
-    _controller.forward();
+      duration: const Duration(milliseconds: 500),
+    )..forward();
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+
+    _floatCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat(reverse: true);
+    _floatAnim = CurvedAnimation(parent: _floatCtrl, curve: Curves.easeInOut);
 
     if (_isMultiplayer) {
       _subscribeToPlayers();
@@ -81,7 +81,8 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _fadeCtrl.dispose();
+    _floatCtrl.dispose();
     _playersChannel?.unsubscribe();
     super.dispose();
   }
@@ -128,11 +129,18 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
 
     if (isHost) {
       try {
+        final sortedPlayers = List<RoomPlayer>.from(players)
+          ..sort((a, b) {
+            int cmp = a.joinedAt.compareTo(b.joinedAt);
+            if (cmp == 0) return a.playerId.compareTo(b.playerId);
+            return cmp;
+          });
+
         gameState = await GameStateService.instance.initGameState(
           roomId: roomId,
           hostPlayerId: myPlayerId,
           difficulty: widget.difficulty,
-          playerOrder: players.map((p) => p.playerId).toList(),
+          playerOrder: sortedPlayers.map((p) => p.playerId).toList(),
         );
         await RoomService.instance.updateRoomStatus(roomId, 'playing');
       } catch (_) {
@@ -244,7 +252,7 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
           _waitingForOthers = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal pilih karakter: $e')),
+          SnackBar(content: Text('Failed to select character: $e')),
         );
       }
     }
@@ -254,278 +262,301 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
     return 'assets/vector/$title Profile.png';
   }
 
+  // ─────────────────────────────────────────────────────────
+  // PHONE: vertically scrollable list of horizontal cards
+  // ─────────────────────────────────────────────────────────
+  Widget _buildPhoneLayout() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        physics: const BouncingScrollPhysics(),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (int i = 0; i < widget.characters.length; i++) ...[
+              _CharacterCard(
+                character: widget.characters[i],
+                onTap: (_characterSelected ||
+                        _isCharacterTaken(widget.characters[i].title))
+                    ? null
+                    : () => _select(widget.characters[i]),
+                profileAsset: _getChibiProfilePath(widget.characters[i].title),
+                takenBy: _getTakenByPlayer(widget.characters[i].title),
+                isWide: false,
+              ),
+              if (i != widget.characters.length - 1) const SizedBox(height: 12),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // TABLET / DESKTOP: centered wrapping row of cards
+  Widget _buildWideLayout({required bool isWide}) {
+    return Center(
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: SizedBox(
+          width: isWide ? (3 * 200 + 2 * 20 + 2) : double.infinity, // Force wrap at 3 cards
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: isWide ? 20 : 12,
+            runSpacing: isWide ? 20 : 12,
+            children: [
+              for (int i = 0; i < widget.characters.length; i++)
+                _CharacterCard(
+                  character: widget.characters[i],
+                  onTap: (_characterSelected ||
+                          _isCharacterTaken(widget.characters[i].title))
+                      ? null
+                      : () => _select(widget.characters[i]),
+                  profileAsset: _getChibiProfilePath(widget.characters[i].title),
+                  takenBy: _getTakenByPlayer(widget.characters[i].title),
+                  isWide: isWide,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWaitingOverlay() {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.55),
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+            decoration: const BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage(
+                  'assets/Element Eco Avenger/select char/image-removebg-preview (14).png',
+                ),
+                fit: BoxFit.fill,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF8B5E3C),
+                    strokeWidth: 3,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'CHARACTER SELECTED! ✓',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.vt323(
+                    fontSize: 22,
+                    color: const Color(0xFF5C3D1E),
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Waiting for other players...',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.vt323(
+                    fontSize: 18,
+                    color: const Color(0xFF8B5E3C),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${_players.where((p) => p.isReady).length}/${_players.length} ready',
+                  style: GoogleFonts.vt323(
+                    fontSize: 20,
+                    color: const Color(0xFF5C3D1E),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // Pixel world map background
           Image.asset(
-            'assets/background/kayu.png',
+            'assets/Element Eco Avenger/select char/image.png',
             fit: BoxFit.cover,
             alignment: Alignment.center,
-            filterQuality: FilterQuality.high,
+            filterQuality: FilterQuality.none,
           ),
-          Container(color: Colors.black.withOpacity(0.12)),
-          
+          Container(color: Colors.black.withOpacity(0.15)),
+
           SafeArea(
             child: FadeTransition(
-              opacity: _fadeAnimation,
+              opacity: _fadeAnim,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final isCompactHeight = constraints.maxHeight < 500;
-                  final isWide = constraints.maxWidth >= 760;
-                  final isPhonePortrait = !isWide && !isCompactHeight;
-                  
-                  final boardWidth = isWide
-                      ? math.min(constraints.maxWidth * 0.96, 1140.0)
-                      : constraints.maxWidth * 0.96;
-                  final boardHeight = math.min(constraints.maxHeight * 0.94, isPhonePortrait ? 640.0 : 580.0);
-
-                  final cardWidth = isCompactHeight ? 130.0 : (isWide ? 190.0 : 200.0);
-                  final cardHeight = isCompactHeight ? 230.0 : (isWide ? 340.0 : 370.0);
-                  final gap = isCompactHeight ? 12.0 : (isWide ? 16.0 : 14.0);
+                  final isWide = constraints.maxWidth >= 720;
+                  final isPhone = constraints.maxWidth < 480;
 
                   return Stack(
-                    alignment: Alignment.center,
-                    clipBehavior: Clip.none,
                     children: [
-                      // Top-Left: Scattered cards
+                      // Inner Stack for Paper Background & Anchored Decorations
                       Positioned(
-                        left: isWide ? constraints.maxWidth * 0.01 : 10,
-                        top: isWide ? constraints.maxHeight * 0.02 : 10,
-                        child: Transform.rotate(
-                          angle: -0.25,
-                          child: SizedBox(
-                            width: isWide ? 90 : 70,
-                            height: isWide ? 130 : 100,
-                            child: Image.asset(
-                              'assets/action_card/Action Cards-Back.png',
-                              fit: BoxFit.contain,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // Scattered Tokens
-                      Positioned(
-                        right: isWide ? constraints.maxWidth * 0.04 : 40,
-                        bottom: isWide ? constraints.maxHeight * 0.02 : 5,
-                        child: Transform.rotate(
-                          angle: -0.15,
-                          child: SizedBox(
-                            width: isWide ? 44 : 32,
-                            height: isWide ? 44 : 32,
-                            child: Image.asset(
-                              'assets/token/sustainable.png',
-                              fit: BoxFit.contain,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      Positioned(
-                        left: isWide ? constraints.maxWidth * 0.06 : 40,
-                        top: isWide ? constraints.maxHeight * 0.01 : 5,
-                        child: Transform.rotate(
-                          angle: 0.3,
-                          child: SizedBox(
-                            width: isWide ? 40 : 30,
-                            height: isWide ? 40 : 30,
-                            child: Image.asset(
-                              'assets/token/crisis.png',
-                              fit: BoxFit.contain,
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      // MAIN GREEN FELT BOARD
-                      Center(
-                        child: SizedBox(
-                          width: boardWidth,
-                          height: boardHeight,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              // Felt board panel
-                              Container(
+                        top: isPhone ? 60 : 75,
+                        left: isPhone ? 20 : 50,
+                        right: isPhone ? 20 : 50,
+                        bottom: isPhone ? 20 : 30,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            // 1. The Main Paper Background
+                            Positioned.fill(
+                              child: Container(
                                 decoration: BoxDecoration(
-                                  color: _feltColor,
-                                  borderRadius: BorderRadius.circular(24),
-                                  border: Border.all(
-                                    color: _borderColor,
-                                    width: 3.5,
-                                  ),
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.black.withOpacity(0.35),
-                                      blurRadius: 16,
-                                      offset: const Offset(0, 8),
+                                      blurRadius: 18,
+                                      offset: const Offset(4, 6),
                                     ),
                                   ],
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                                child: Column(
-                                  children: [
-                                    // Title
-                                    Text(
-                                      'SELECT YOUR CHARACTER',
-                                      textAlign: TextAlign.center,
-                                      style: GoogleFonts.montserrat(
-                                        fontSize: isWide ? 28 : 20,
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.white,
-                                        letterSpacing: 2.0,
-                                        shadows: [
-                                          Shadow(
-                                            color: Colors.black.withOpacity(0.3),
-                                            offset: const Offset(0, 2),
-                                            blurRadius: 4,
-                                          ),
-                                        ],
-                                      ),
+                                  image: const DecorationImage(
+                                    image: AssetImage(
+                                      'assets/Element Eco Avenger/select char/image-removebg-preview (14).png',
                                     ),
-                                    // Multiplayer: ready count
+                                    fit: BoxFit.fill,
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: EdgeInsets.only(
+                                    top: isPhone ? 60 : 90,
+                                    bottom: isPhone ? 20 : 30,
+                                    left: isPhone ? 10 : 20,
+                                    right: isPhone ? 10 : 20,
+                                  ),
+                                  child: isPhone ? _buildPhoneLayout() : _buildWideLayout(isWide: isWide),
+                                ),
+                              ),
+                            ),
+
+                            // 2. Floating corner decorations anchored to the paper
+                            // Top-Left Rolled Scroll
+                            _FloatingDecor(
+                              animation: _floatAnim,
+                              top: isPhone ? -30 : -45,
+                              left: isPhone ? -35 : -55,
+                              floatAmount: 6,
+                              child: Image.asset(
+                                'assets/Element Eco Avenger/select char/image-removebg-preview (13).png',
+                                width: isPhone ? 110 : (isWide ? 190 : 160),
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            // Bottom-Left Cloud
+                            _FloatingDecor(
+                              animation: _floatAnim,
+                              bottom: isPhone ? -30 : -50,
+                              left: isPhone ? -30 : -50,
+                              floatAmount: 8,
+                              child: Image.asset(
+                                'assets/Element Eco Avenger/select char/image-removebg-preview (10).png',
+                                width: isPhone ? 140 : (isWide ? 220 : 180),
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            // Bottom-Right Torn Paper
+                            _FloatingDecor(
+                              animation: _floatAnim,
+                              bottom: isPhone ? -40 : -70,
+                              right: isPhone ? -50 : -80,
+                              floatAmount: -5,
+                              child: Image.asset(
+                                'assets/Element Eco Avenger/select char/image-removebg-preview (11).png',
+                                width: isPhone ? 100 : (isWide ? 180 : 150),
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+
+                            // 3. Title Parchment Banner (centered, overlapping top edge)
+                            Positioned(
+                              top: isPhone ? -45 : -70,
+                              left: 0,
+                              right: 0,
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Image.asset(
+                                      'assets/Element Eco Avenger/select char/image-removebg-preview (12).png',
+                                      width: isPhone ? 280 : (isWide ? 500 : 380),
+                                      fit: BoxFit.contain,
+                                    ),
                                     if (_isMultiplayer) ...[
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        '${_players.where((p) => p.isReady).length}/${_players.length} pemain sudah pilih karakter',
-                                        style: GoogleFonts.montserrat(
-                                          fontSize: 12,
-                                          color: Colors.white70,
-                                          fontWeight: FontWeight.w600,
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.8),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: const Color(0xFF8B5E3C), width: 2),
+                                        ),
+                                        child: Text(
+                                          '${_players.where((p) => p.isReady).length}/${_players.length} players picked',
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.vt323(
+                                            fontSize: isPhone ? 14 : 18,
+                                            color: const Color(0xFF5C3D1E),
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                     ],
-                                    SizedBox(height: isWide ? 24 : 16),
-                                    // Character Cards
-                                    Expanded(
-                                      child: Center(
-                                        child: SingleChildScrollView(
-                                          scrollDirection: Axis.horizontal,
-                                          physics: const BouncingScrollPhysics(),
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                                            child: Row(
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                for (int i = 0; i < widget.characters.length; i++) ...[ 
-                                                  _CharacterCard(
-                                                    character: widget.characters[i],
-                                                    onTap: (_characterSelected || _isCharacterTaken(widget.characters[i].title))
-                                                        ? null
-                                                        : () => _select(widget.characters[i]),
-                                                    width: cardWidth,
-                                                    height: cardHeight,
-                                                    isWide: isWide,
-                                                    isPhone: isPhonePortrait,
-                                                    profileAsset: _getChibiProfilePath(widget.characters[i].title),
-                                                    takenBy: _getTakenByPlayer(widget.characters[i].title),
-                                                  ),
-                                                  if (i != widget.characters.length - 1)
-                                                    SizedBox(width: gap),
-                                                ],
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),
+                            ),
+                          ],
+                        ),
+                      ),
 
-                              // Waiting overlay (multiplayer)
-                              if (_waitingForOthers)
-                                Positioned.fill(
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(24),
-                                    child: Container(
-                                      color: Colors.black.withOpacity(0.60),
-                                      child: Center(
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const CircularProgressIndicator(
-                                              color: Color(0xFFA5C18A),
-                                              strokeWidth: 3,
-                                            ),
-                                            const SizedBox(height: 16),
-                                            Text(
-                                              'Karakter dipilih! ✓',
-                                              style: GoogleFonts.montserrat(
-                                                fontSize: isWide ? 20 : 16,
-                                                fontWeight: FontWeight.w800,
-                                                color: const Color(0xFFA5C18A),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              'Menunggu pemain lain...',
-                                              style: GoogleFonts.montserrat(
-                                                fontSize: isWide ? 14 : 12,
-                                                color: Colors.white70,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 12),
-                                            Text(
-                                              '${_players.where((p) => p.isReady).length}/${_players.length} siap',
-                                              style: GoogleFonts.montserrat(
-                                                fontSize: isWide ? 16 : 13,
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              
-                              // Back Button
-                              Positioned(
-                                left: -14,
-                                top: -14,
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap: () => Navigator.of(context).pop(),
-                                    borderRadius: BorderRadius.circular(100),
-                                    child: Container(
-                                      width: isWide ? 64 : 52,
-                                      height: isWide ? 64 : 52,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: _feltColor,
-                                        border: Border.all(
-                                          color: _borderColor,
-                                          width: 3.5,
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withOpacity(0.3),
-                                            blurRadius: 8,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Icon(
-                                        Icons.arrow_back_rounded,
-                                        color: Colors.white,
-                                        size: isWide ? 32 : 26,
-                                      ),
-                                    ),
-                                  ),
+                      // Back button
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: _PixelButton(
+                          onTap: () => Navigator.of(context).pop(),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.arrow_back_rounded,
+                                  color: Colors.white, size: 20),
+                              const SizedBox(width: 6),
+                              Text(
+                                'BACK',
+                                style: GoogleFonts.vt323(
+                                  fontSize: 18,
+                                  color: Colors.white,
+                                  letterSpacing: 1,
                                 ),
                               ),
                             ],
                           ),
                         ),
                       ),
+
+                      // Waiting overlay
+                      if (_waitingForOthers) _buildWaitingOverlay(),
                     ],
                   );
                 },
@@ -538,24 +569,21 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
   }
 }
 
+// ─────────────────────────────────────────────────────────
+// _CharacterCard – parchment-styled selectable card
+// ─────────────────────────────────────────────────────────
 class _CharacterCard extends StatefulWidget {
   final CharacterOption character;
-  final VoidCallback? onTap; // nullable = disabled
-  final double width;
-  final double height;
-  final bool isWide;
-  final bool isPhone;
+  final VoidCallback? onTap;
   final String profileAsset;
   final RoomPlayer? takenBy;
+  final bool isWide;
 
   const _CharacterCard({
     required this.character,
     required this.onTap,
-    required this.width,
-    required this.height,
-    required this.isWide,
-    this.isPhone = false,
     required this.profileAsset,
+    required this.isWide,
     this.takenBy,
   });
 
@@ -569,189 +597,269 @@ class _CharacterCardState extends State<_CharacterCard> {
   @override
   Widget build(BuildContext context) {
     final isDisabled = widget.onTap == null;
-    return GestureDetector(
-      onTapDown: isDisabled ? null : (_) => setState(() => _pressed = true),
-      onTapUp: isDisabled ? null : (_) => setState(() => _pressed = false),
-      onTapCancel: isDisabled ? null : () => setState(() => _pressed = false),
-      onTap: widget.onTap,
-      child: AnimatedOpacity(
-        opacity: isDisabled ? 0.55 : 1.0,
-        duration: const Duration(milliseconds: 250),
-        child: AnimatedScale(
-          scale: _pressed ? 0.97 : 1.0,
-          duration: const Duration(milliseconds: 100),
-          child: Container(
-            width: widget.width,
-            height: widget.height,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF111111), width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.20),
-                  blurRadius: 0,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                // 1. Header (Title)
-                Container(
-                  height: widget.isWide ? 50 : (widget.isPhone ? 36 : 24),
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
-                    border: Border(bottom: BorderSide(color: Color(0xFF111111), width: 3)),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  alignment: Alignment.center,
-                  child: Text(
-                    widget.character.title.toUpperCase(),
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.montserrat(
-                      color: widget.character.accentColor,
-                      fontSize: widget.isWide ? 12.0 : (widget.isPhone ? 9.0 : 6.5),
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.3,
-                      height: 1.0,
-                    ),
-                  ),
-                ),
-                // 2. Chibi profile section
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    color: const Color(0xFF2AA5B2),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(6),
-                            child: Image.asset(
-                              widget.profileAsset,
-                              fit: BoxFit.fitHeight,
-                              height: double.infinity,
-                              cacheHeight: 512,
-                              cacheWidth: 512,
-                              filterQuality: FilterQuality.medium,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(
-                                    Icons.person_outline,
-                                    color: Colors.white70,
-                                    size: 40,
-                                  ),
-                                );
-                              },
-                              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                                if (wasSynchronouslyLoaded) return child;
-                                return AnimatedOpacity(
-                                  opacity: frame != null ? 1.0 : 0.0,
-                                  duration: const Duration(milliseconds: 500),
-                                  child: child,
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        // Taken overlay
-                        if (widget.takenBy != null)
-                          Positioned.fill(
-                            child: Container(
-                              color: Colors.black.withOpacity(0.55),
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // Player avatar (account profile pic)
-                                    Container(
-                                      width: widget.isWide ? 48 : (widget.isPhone ? 40 : 32),
-                                      height: widget.isWide ? 48 : (widget.isPhone ? 40 : 32),
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
-                                        image: widget.takenBy!.avatarUrl != null
-                                            ? DecorationImage(
-                                                image: NetworkImage(widget.takenBy!.avatarUrl!),
-                                                fit: BoxFit.cover,
-                                              )
-                                            : null,
-                                        color: Colors.white24,
-                                      ),
-                                      child: widget.takenBy!.avatarUrl == null
-                                          ? const Icon(Icons.person, color: Colors.white70, size: 16)
-                                          : null,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      widget.takenBy!.playerName,
-                                      style: GoogleFonts.montserrat(
-                                        fontSize: widget.isWide ? 12 : (widget.isPhone ? 10 : 8),
-                                        fontWeight: FontWeight.w800,
-                                        color: Colors.white,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    Container(
-                                      margin: const EdgeInsets.only(top: 2),
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red.shade400,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        'TAKEN',
-                                        style: GoogleFonts.montserrat(
-                                          fontSize: widget.isWide ? 9 : (widget.isPhone ? 8 : 6),
-                                          fontWeight: FontWeight.w900,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                // Border divider
-                Container(height: 3, color: const Color(0xFF111111)),
-                // 3. Description
-                Container(
-                  height: widget.isWide ? 116 : (widget.isPhone ? 72 : 48),
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFFAF8F5),
-                    borderRadius: BorderRadius.vertical(bottom: Radius.circular(8)),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-                  alignment: Alignment.center,
-                  child: Text(
-                    widget.character.description,
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.montserrat(
-                      fontSize: widget.isWide ? 12.0 : (widget.isPhone ? 9.0 : 7.0),
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black87,
-                      height: 1.3,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    final isTaken = widget.takenBy != null;
+    return MouseRegion(
+      cursor: isDisabled ? SystemMouseCursors.forbidden : SystemMouseCursors.click,
+      child: GestureDetector(
+        onTapDown: isDisabled ? null : (_) => setState(() => _pressed = true),
+        onTapUp: isDisabled ? null : (_) => setState(() => _pressed = false),
+        onTapCancel: isDisabled ? null : () => setState(() => _pressed = false),
+        onTap: widget.onTap,
+        child: AnimatedOpacity(
+          opacity: isDisabled ? 0.65 : 1.0,
+          duration: const Duration(milliseconds: 200),
+          child: AnimatedScale(
+            scale: _pressed ? 0.96 : 1.0,
+            duration: const Duration(milliseconds: 100),
+            child: _buildPrototypeCard(isTaken),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrototypeCard(bool isTaken) {
+    return Container(
+      width: widget.isWide ? 200 : 150,
+      height: widget.isWide ? 280 : 220,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD4D4D4), width: 4),
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, offset: Offset(2, 4), blurRadius: 4),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          children: [
+            // Title
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  widget.character.title.toUpperCase(),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.fredoka(
+                    fontSize: widget.isWide ? 14 : 11,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF2E86AB),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            // Image Box
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: widget.character.accentColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Image.asset(
+                        widget.profileAsset,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    if (isTaken) _buildTakenOverlay(isSmall: false),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Description
+            SizedBox(
+              height: widget.isWide ? 44 : 36,
+              child: Center(
+                child: Text(
+                  widget.character.description,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.roboto(
+                    fontSize: widget.isWide ? 10 : 8,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black87,
+                    height: 1.1,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTakenOverlay({required bool isSmall}) {
+    return Positioned.fill(
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.60),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.takenBy != null) ...[
+                Container(
+                  width: isSmall ? 32 : 44,
+                  height: isSmall ? 32 : 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                    image: widget.takenBy!.avatarUrl != null
+                        ? DecorationImage(
+                            image: NetworkImage(widget.takenBy!.avatarUrl!),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                    color: Colors.white24,
+                  ),
+                  child: widget.takenBy!.avatarUrl == null
+                      ? Icon(Icons.person,
+                          color: Colors.white70, size: isSmall ? 16 : 22)
+                      : null,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  widget.takenBy!.playerName,
+                  style: GoogleFonts.vt323(
+                      fontSize: isSmall ? 12 : 14,
+                      color: Colors.white,
+                      height: 1),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              const SizedBox(height: 3),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.white, width: 1.5),
+                ),
+                child: Text(
+                  'TAKEN',
+                  style: GoogleFonts.vt323(
+                      fontSize: isSmall ? 13 : 16,
+                      color: Colors.white,
+                      letterSpacing: 1),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// _FloatingDecor – animated floating decorative pixel-art
+// ─────────────────────────────────────────────────────────
+class _FloatingDecor extends StatelessWidget {
+  final Animation<double> animation;
+  final double? top;
+  final double? bottom;
+  final double? left;
+  final double? right;
+  final double floatAmount;
+  final Widget child;
+
+  const _FloatingDecor({
+    required this.animation,
+    this.top,
+    this.bottom,
+    this.left,
+    this.right,
+    required this.floatAmount,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: top,
+      bottom: bottom,
+      left: left,
+      right: right,
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: animation,
+          builder: (context, child) {
+            return Transform.translate(
+              offset: Offset(0, floatAmount * animation.value),
+              child: child,
+            );
+          },
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// _PixelButton – retro pixel-art style button
+// ─────────────────────────────────────────────────────────
+class _PixelButton extends StatefulWidget {
+  final VoidCallback onTap;
+  final Widget child;
+
+  const _PixelButton({required this.onTap, required this.child});
+
+  @override
+  State<_PixelButton> createState() => _PixelButtonState();
+}
+
+class _PixelButtonState extends State<_PixelButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) {
+          setState(() => _pressed = false);
+          widget.onTap();
+        },
+        onTapCancel: () => setState(() => _pressed = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 80),
+          transform: _pressed
+              ? Matrix4.translationValues(2, 2, 0)
+              : Matrix4.identity(),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF5C3D1E),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFF111111), width: 2),
+            boxShadow: _pressed
+                ? []
+                : const [
+                    BoxShadow(
+                      color: Color(0xFF111111),
+                      offset: Offset(2, 2),
+                      blurRadius: 0,
+                    )
+                  ],
+          ),
+          child: widget.child,
         ),
       ),
     );
