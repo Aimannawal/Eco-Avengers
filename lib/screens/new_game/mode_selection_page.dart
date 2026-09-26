@@ -4,45 +4,48 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'character_selection_page.dart';
 import '../multiplayer/lobby_screen.dart';
+import '../../services/network_permission_service.dart';
+import '../../widgets/online_permission_dialog.dart';
 
 class ModeSelectionPage extends StatelessWidget {
   const ModeSelectionPage({Key? key}) : super(key: key);
 
   /// Public agar bisa diakses dari WaitingRoomScreen & LobbyScreen
+  /// Urutan sesuai tampilan layout Canva (Top row: Energy Scientist, Ecologist, Environmental Activist; Bottom row: Policymaker, Climate Engineer)
   static const List<CharacterOption> characterOptions = [
+    CharacterOption(
+      title: 'Energy Scientist',
+      description: 'Decreases Energy Crisis difficulty by 1.',
+      assetPath:
+          'assets/character_sheet/Character Sheet-Energy Scientist.png',
+      accentColor: Color(0xFF4F7DBA),
+    ),
+    CharacterOption(
+      title: 'Ecologist',
+      description: 'Decreases Environmental Degradation difficulty by 1.',
+      assetPath: 'assets/character_sheet/Character Sheet-Ecologist.png',
+      accentColor: Color(0xFFED9B3B),
+    ),
     CharacterOption(
       title: 'Environmental Activist',
       description: 'Move two spaces forward at once during your turn.',
       assetPath:
-          'assets/character/Character Sheet-Environmental Activist.png',
+          'assets/character_sheet/Character Sheet-Environmental Activist.png',
       accentColor: Color(0xFF38A3A5),
     ),
     CharacterOption(
       title: 'Policymaker',
       description:
           'Adds 1 to the first derived dice value for other players in range.',
-      assetPath: 'assets/character/Character Sheet-Policymaker.png',
+      assetPath: 'assets/character_sheet/Character Sheet-Policymaker.png',
       accentColor: Color(0xFFB07D54),
     ),
     CharacterOption(
       title: 'Climate Engineer',
       description: 'Decreases Climate Resilience difficulty by 1.',
       assetPath:
-          'assets/character/Character Sheet-Climate Engineer.png',
+          'assets/character_sheet/Character Sheet-Climate Engineer.png',
       accentColor: Color(0xFFF06292),
-    ),
-    CharacterOption(
-      title: 'Ecologist',
-      description: 'Decreases Environmental Degradation difficulty by 1.',
-      assetPath: 'assets/character/Character Sheet-Ecologist.png',
-      accentColor: Color(0xFFED9B3B),
-    ),
-    CharacterOption(
-      title: 'Energy Scientist',
-      description: 'Decreases Energy Crisis difficulty by 1.',
-      assetPath:
-          'assets/character/Character Sheet-Energy Scientist.png',
-      accentColor: Color(0xFF4F7DBA),
     ),
   ];
 
@@ -57,7 +60,25 @@ class ModeSelectionPage extends StatelessWidget {
     );
   }
 
-  void _selectMultiplayer(BuildContext context, String difficulty) {
+  Future<void> _selectMultiplayer(BuildContext context, String difficulty) async {
+    final hasPermission = await NetworkPermissionService.instance.isPermissionGranted();
+    if (!hasPermission) {
+      if (!context.mounted) return;
+      final granted = await OnlinePermissionDialog.show(context);
+      if (!granted) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Izin online (Wi-Fi/kuota) diperlukan untuk bermain Multiplayer.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    if (!context.mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => LobbyScreen(difficulty: difficulty),
@@ -118,17 +139,17 @@ class ModeSelectionPage extends StatelessWidget {
                   scrollHeight = scrollWidth / 1.4;
                 }
                 
-                final double buttonWidth = scrollWidth * 0.45; // Made buttons smaller
-                final double gap = scrollHeight * 0.025; // Smaller gap
+                final double buttonWidth = scrollWidth * 0.44;
+                final double gap = scrollHeight * 0.028;
                 
                 return SizedBox(
                   width: scrollWidth,
-                  height: scrollHeight + (scrollHeight * 0.15), // Extra space for banner
+                  height: scrollHeight + (scrollHeight * 0.20),
                   child: Stack(
                     alignment: Alignment.center,
                     clipBehavior: Clip.none,
                     children: [
-                      // Scroll Background
+                      // 1. Scroll Background
                       Positioned(
                         top: scrollHeight * 0.15,
                         child: Image.asset(
@@ -139,56 +160,55 @@ class ModeSelectionPage extends StatelessWidget {
                           filterQuality: FilterQuality.high,
                         ),
                       ),
-                      
-                      // Banner and Buttons Column
+
+                      // 2. Banner overlapping top edge of scroll
                       Positioned(
-                        top: scrollHeight * 0.08, // Start slightly lower so it overlaps nicely
+                        top: scrollHeight * 0.05,
+                        child: Image.asset(
+                          _bannerPath,
+                          width: scrollWidth * 0.55,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                        ),
+                      ),
+                      
+                      // 3. 4 Mode Buttons - centered vertically & horizontally inside the scroll
+                      Positioned.fill(
+                        top: scrollHeight * 0.22,
+                        bottom: scrollHeight * 0.04,
                         left: 0,
                         right: 0,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            // Banner
-                            Image.asset(
-                              _bannerPath,
-                              width: scrollWidth * 0.55, // Made banner smaller
-                              fit: BoxFit.contain,
-                              filterQuality: FilterQuality.high,
-                            ),
-                            SizedBox(height: gap * 2.0),
-                            
-                            // Easy Button
-                            _buildImageButton(
-                              _easyPath,
-                              () => _selectDifficulty(context, 'easy'),
-                              buttonWidth,
-                            ),
-                            SizedBox(height: gap),
-                            
-                            // Medium Button
-                            _buildImageButton(
-                              _mediumPath,
-                              () => _selectDifficulty(context, 'normal'),
-                              buttonWidth,
-                            ),
-                            SizedBox(height: gap),
-                            
-                            // Hard Button
-                            _buildImageButton(
-                              _hardPath,
-                              () => _selectDifficulty(context, 'hard'),
-                              buttonWidth,
-                            ),
-                            SizedBox(height: gap),
-                            
-                            // Multiplayer Button
-                            _buildImageButton(
-                              _multiplayerPath,
-                              () => _selectMultiplayer(context, 'normal'),
-                              buttonWidth,
-                            ),
-                          ],
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildImageButton(
+                                _easyPath,
+                                () => _selectDifficulty(context, 'easy'),
+                                buttonWidth,
+                              ),
+                              SizedBox(height: gap),
+                              _buildImageButton(
+                                _mediumPath,
+                                () => _selectDifficulty(context, 'normal'),
+                                buttonWidth,
+                              ),
+                              SizedBox(height: gap),
+                              _buildImageButton(
+                                _hardPath,
+                                () => _selectDifficulty(context, 'hard'),
+                                buttonWidth,
+                              ),
+                              SizedBox(height: gap),
+                              _buildImageButton(
+                                _multiplayerPath,
+                                () => _selectMultiplayer(context, 'normal'),
+                                buttonWidth,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],

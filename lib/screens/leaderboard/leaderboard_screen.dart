@@ -53,42 +53,42 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     PlayerProfile(
       id: 'mock-1',
       playerId: 'mock-p1',
-      displayName: 'TERIRA THE DESTROYER',
-      country: 'SPAIN',
+      displayName: 'ECROS',
+      country: 'UNITED STATES',
       character: 'Climate Engineering',
-      totalWins: 24,
-      totalLosses: 3,
-      totalBadges: 8,
-      bestScore: 1210,
-      badges: const {'climate': 3, 'ecology': 2, 'energy': 3},
+      totalWins: 28,
+      totalLosses: 2,
+      totalBadges: 9,
+      bestScore: 1260,
+      badges: const {'climate': 3, 'ecology': 3, 'energy': 3},
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     ),
     PlayerProfile(
       id: 'mock-2',
       playerId: 'mock-p2',
-      displayName: 'PUTRI',
+      displayName: 'IWIN#01',
       country: 'INDONESIA',
       character: 'Environmental Ecology',
-      totalWins: 19,
-      totalLosses: 5,
-      totalBadges: 6,
-      bestScore: 960,
-      badges: const {'climate': 2, 'ecology': 3, 'energy': 1},
+      totalWins: 24,
+      totalLosses: 4,
+      totalBadges: 8,
+      bestScore: 1250,
+      badges: const {'climate': 3, 'ecology': 3, 'energy': 2},
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     ),
     PlayerProfile(
       id: 'mock-3',
       playerId: 'mock-p3',
-      displayName: 'AZHEL MASTER',
-      country: 'INDONESIA',
+      displayName: 'TEAIRA THE DESTROYER',
+      country: 'SPAIN',
       character: 'Energy Science',
-      totalWins: 15,
-      totalLosses: 7,
-      totalBadges: 5,
-      bestScore: 860,
-      badges: const {'climate': 1, 'ecology': 2, 'energy': 2},
+      totalWins: 20,
+      totalLosses: 5,
+      totalBadges: 7,
+      bestScore: 1210,
+      badges: const {'climate': 2, 'ecology': 3, 'energy': 2},
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     ),
@@ -550,8 +550,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
                     // Bubble #1 (Peak 1 - Top Center)
                     Positioned(
-                      top: (sceneHeight * 0.06).clamp(10.0, 70.0),
-                      left: (sceneWidth / 2) - (mountainW * 0.42),
+                      top: (sceneHeight * 0.04).clamp(10.0, 55.0),
+                      left: (sceneWidth / 2) - (mountainW * 0.32),
                       child: _buildSpeechBubble(
                         bubbleAsset: _bubble1Path,
                         rank: 1,
@@ -562,8 +562,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
                     // Bubble #2 (Peak 2 - Right Shoulder)
                     Positioned(
-                      top: (sceneHeight * 0.28).clamp(80.0, 200.0),
-                      left: (sceneWidth / 2) + (mountainW * 0.08),
+                      top: (sceneHeight * 0.25).clamp(70.0, 160.0),
+                      left: (sceneWidth / 2) + (mountainW * 0.06),
                       child: _buildSpeechBubble(
                         bubbleAsset: _bubble2Path,
                         rank: 2,
@@ -574,8 +574,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
                     // Bubble #3 (Peak 3 - Left Base)
                     Positioned(
-                      bottom: (sceneHeight * 0.18).clamp(60.0, 150.0),
-                      right: (sceneWidth / 2) + (mountainW * 0.12),
+                      bottom: (sceneHeight * 0.16).clamp(50.0, 140.0),
+                      right: (sceneWidth / 2) + (mountainW * 0.14),
                       child: _buildSpeechBubble(
                         bubbleAsset: _bubble3Path,
                         rank: 3,
@@ -595,23 +595,47 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   // --- Speech Bubble for Podium ---
   Widget _buildSpeechBubble({
-    required String bubbleAsset, // Unused, we use the new separated assets
+    required String bubbleAsset,
     required int rank,
     required PlayerProfile player,
     required bool avatarOnLeft,
   }) {
-    const double avatarSize = 75.0;
-    const double medalSize = 55.0;
-    
-    // Select the correct bubble background and medal based on rank/position
-    // If avatar is on left, tail points to the RIGHT (mountain peak) -> buble right.png
-    // If avatar is on right, tail points to the LEFT (mountain peak) -> buble left.png
+    // Bubble background asset: tail points left when avatar is on left, vice versa
     final String bubbleBg = avatarOnLeft
         ? 'assets/Element Eco Avenger/Multiplayer page/buble right.png'
         : 'assets/Element Eco Avenger/Multiplayer page/buble left.png';
     final String medalIcon = 'assets/Element Eco Avenger/Multiplayer page/$rank.png';
 
-    // The text block
+    // Sizes
+    const double avatarSize = 80.0;
+    const double bubbleW = 195.0;
+    const double bubbleH = 122.0;
+    const double medalSize = 46.0;
+
+    // Avatar overlaps bubble by ~half its width so it sits snug against the bubble edge.
+    // overlap = how many px of avatar are INSIDE the bubble area
+    const double overlap = 38.0;
+
+    // Total width = avatar + bubble - overlap
+    const double totalW = avatarSize + bubbleW - overlap;  // ~237
+    const double totalH = 134.0;
+
+    // Horizontal positions inside the SizedBox
+    // avatarOnLeft:  [avatar][--bubble--]
+    // avatarOnRight: [--bubble--][avatar]
+    final double avatarLeft = avatarOnLeft ? 0.0 : totalW - avatarSize;
+    final double bubbleLeft = avatarOnLeft ? avatarSize - overlap : 0.0;
+
+    // Medal: bottom corner of bubble on the tail side
+    final double medalLeft = avatarOnLeft
+        ? bubbleLeft + bubbleW - medalSize * 0.55   // bottom-right of bubble
+        : bubbleLeft - medalSize * 0.45;            // bottom-left of bubble
+
+    // Text padding: push text away from avatar-overlap side
+    final EdgeInsets textPad = avatarOnLeft
+        ? EdgeInsets.only(left: overlap + 4, right: 14, top: 10, bottom: 16)
+        : const EdgeInsets.only(left: 14, right: overlap + 4, top: 10, bottom: 16);
+
     final Widget textBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -620,7 +644,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         Text(
           player.displayName.toUpperCase(),
           style: GoogleFonts.pressStart2p(
-            fontSize: 8.5,
+            fontSize: 8.0,
             fontWeight: FontWeight.w700,
             color: _lbBorderBlack,
             height: 1.4,
@@ -628,11 +652,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 4),
         Text(
           '🌍 ${(player.country ?? 'INDONESIA').toUpperCase()}',
           style: GoogleFonts.pressStart2p(
-            fontSize: 7.0,
+            fontSize: 6.5,
             color: const Color(0xFF444444),
             fontStyle: FontStyle.italic,
             height: 1.3,
@@ -653,39 +677,42 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       ],
     );
 
-    // The bubble with text inside
-    final Widget textBubble = Container(
-      width: 195,
-      height: 123, // Maintain 1.58 aspect ratio of the 240x152 asset
-      decoration: BoxDecoration(
-        image: DecorationImage(
-          image: AssetImage(bubbleBg),
-          fit: BoxFit.fill,
-          filterQuality: FilterQuality.high,
+    final Widget textBubble = SizedBox(
+      width: bubbleW,
+      height: bubbleH,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage(bubbleBg),
+            fit: BoxFit.fill,
+            filterQuality: FilterQuality.high,
+          ),
+        ),
+        child: Padding(
+          padding: textPad,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: textBlock,
+          ),
         ),
       ),
-      padding: EdgeInsets.only(
-        left: avatarOnLeft ? 12 : 28, // Padding for tail when tail is on left
-        right: avatarOnLeft ? 28 : 12, // Padding for tail when tail is on right
-        top: 10,
-        bottom: 15,
-      ),
-      alignment: Alignment.centerLeft,
-      child: textBlock,
     );
 
-    // The Avatar Circle
+    // Avatar circle — rendered ABOVE the bubble using z-order (placed last in Stack)
     final Widget avatar = Container(
       width: avatarSize,
       height: avatarSize,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
+        color: Colors.white,
         border: Border.all(color: _lbBorderBlack, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 3)),
+        ],
       ),
       child: ClipOval(child: _buildPlayerAvatar(player)),
     );
 
-    // The Medal
     final Widget medal = Image.asset(
       medalIcon,
       width: medalSize,
@@ -699,31 +726,28 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: SizedBox(
-          width: 270,
-          height: 140,
+          width: totalW,
+          height: totalH,
           child: Stack(
             clipBehavior: Clip.none,
             children: [
-              // Bubble
+              // 1. Speech bubble (behind avatar)
               Positioned(
-                top: 0,
-                left: avatarOnLeft ? 60 : null,
-                right: avatarOnLeft ? null : 60,
+                top: (totalH - bubbleH) / 2,
+                left: bubbleLeft,
                 child: textBubble,
               ),
-              // Avatar (on top of bubble)
+              // 2. Medal
               Positioned(
-                top: 20,
-                left: avatarOnLeft ? 0 : null,
-                right: avatarOnLeft ? null : 0,
-                child: avatar,
-              ),
-              // Medal (hanging on the opposite corner of the bubble)
-              Positioned(
-                top: 80,
-                left: avatarOnLeft ? 220 : null,
-                right: avatarOnLeft ? null : 220,
+                top: (totalH - bubbleH) / 2 + bubbleH - medalSize * 0.6,
+                left: medalLeft,
                 child: medal,
+              ),
+              // 3. Avatar circle (on top — placed last so it renders above bubble)
+              Positioned(
+                top: (totalH - avatarSize) / 2,
+                left: avatarLeft,
+                child: avatar,
               ),
             ],
           ),
@@ -732,12 +756,16 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-
-
-
   // Avatar: show uploaded photo if available, else colorful initial
   Widget _buildPlayerAvatar(PlayerProfile player) {
     if (player.avatarUrl != null && player.avatarUrl!.isNotEmpty) {
+      if (player.avatarUrl!.startsWith('assets/')) {
+        return Image.asset(
+          player.avatarUrl!,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _defaultAvatar(player),
+        );
+      }
       return Image.network(
         player.avatarUrl!,
         fit: BoxFit.cover,

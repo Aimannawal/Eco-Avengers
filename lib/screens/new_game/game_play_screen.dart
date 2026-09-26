@@ -14,6 +14,7 @@ import '../../services/leaderboard_service.dart';
 import '../../services/room_service.dart';
 import '../../services/supabase_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/eco_ideas_dialog.dart';
 import 'character_selection_page.dart';
 import 'character_sheet_dialog.dart';
 import 'interactive_map_dialog.dart';
@@ -907,7 +908,23 @@ class _GamePlayScreenState extends State<GamePlayScreen>
       builder: (context) => SpinWheelDialog(
         difficulty: widget.selectedDifficulty,
         isMultiplayer: _isMultiplayer,
-        onResult: _handleSpinResult,
+        onResult: (result) async {
+          // Show Eco Ideas dialog for player to write a solution
+          if (mounted) {
+            await EcoIdeasDialog.show(
+              context: context,
+              region: gameRound.selectedRegion,
+              crisisLevel: gameRound.currentEcoCrisisLevel,
+              crisisVariant: gameRound.currentEcoCrisisVariant,
+              cardTitle:
+                  '${gameRound.selectedRegion} Crisis (Level ${gameRound.currentEcoCrisisLevel}-${gameRound.currentEcoCrisisVariant})',
+              cardAssetPath: _getEcoCrisisCardPath(),
+            );
+          }
+          if (mounted) {
+            _handleSpinResult(result);
+          }
+        },
       ),
     );
   }
@@ -3478,19 +3495,19 @@ class _GamePlayScreenState extends State<GamePlayScreen>
               ),
             ),
             padding: EdgeInsets.fromLTRB(
-              width * 0.08,
-              height * 0.10,
-              width * 0.08,
-              height * 0.04,
+              width * 0.13,
+              height * 0.14,
+              width * 0.13,
+              height * 0.08,
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(6),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
                   Image.asset(
                     cardPath,
-                    fit: BoxFit.fill,
+                    fit: BoxFit.contain,
                     alignment: Alignment.center,
                     errorBuilder: (context, error, stackTrace) {
                       return Container(

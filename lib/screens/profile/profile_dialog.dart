@@ -5,10 +5,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:feather_icons/feather_icons.dart';
 
 import '../../models/leaderboard_model.dart';
+import '../../models/eco_idea_model.dart';
 import 'image_positioning_dialog.dart';
 import '../../services/auth_service.dart';
 import '../../services/leaderboard_service.dart';
 import '../../services/supabase_service.dart';
+import '../../services/eco_ideas_service.dart';
 import '../../widgets/user_avatar.dart';
 
 class ProfileDialog extends StatefulWidget {
@@ -27,6 +29,7 @@ class _ProfileDialogState extends State<ProfileDialog>
 
   PlayerProfile? _profile;
   List<GameResult>? _recentGames;
+  List<EcoIdea>? _ecoIdeas;
   bool _isLoading = true;
   bool _isUploading = false;
   bool _isSaving = false;
@@ -40,7 +43,7 @@ class _ProfileDialogState extends State<ProfileDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadData();
   }
 
@@ -54,11 +57,13 @@ class _ProfileDialogState extends State<ProfileDialog>
       playerId,
       limit: 10,
     );
+    final ecoIdeas = await EcoIdeasService.instance.getIdeas(playerId);
 
     if (mounted) {
       setState(() {
         _profile = profile;
         _recentGames = games;
+        _ecoIdeas = ecoIdeas;
         if (profile != null) {
           _nameController.text = profile.displayName;
           _countryController.text = profile.country ?? '';
@@ -318,6 +323,7 @@ class _ProfileDialogState extends State<ProfileDialog>
                       Tab(text: 'OVERVIEW'),
                       Tab(text: 'EDIT'),
                       Tab(text: 'HISTORY'),
+                      Tab(text: 'ECO IDEAS'),
                     ],
                   ),
                 ],
@@ -338,6 +344,7 @@ class _ProfileDialogState extends State<ProfileDialog>
                         _buildOverviewTab(),
                         _buildEditTab(),
                         _buildHistoryTab(),
+                        _buildEcoIdeasTab(),
                       ],
                     ),
             ),
@@ -1051,5 +1058,156 @@ class _ProfileDialogState extends State<ProfileDialog>
   String _formatDate(DateTime date) {
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
+  Widget _buildEcoIdeasTab() {
+    if (_ecoIdeas == null || _ecoIdeas!.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5E9),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF81C784), width: 2),
+                ),
+                child: const Icon(
+                  FeatherIcons.globe,
+                  size: 38,
+                  color: Color(0xFF2E7D32),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Belum Ada Eco Ideas',
+                style: GoogleFonts.fredoka(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF2E7D32),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Putar roda (Spin Wheel) saat menyelesaikan krisis lingkungan dan bagikan ide solusimu!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.roboto(
+                  fontSize: 12.5,
+                  color: Colors.black54,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: _ecoIdeas!.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final idea = _ecoIdeas![index];
+
+        final now = DateTime.now();
+        final diff = now.difference(idea.createdAt);
+        String timeAgo;
+        if (diff.inDays == 0) {
+          if (diff.inHours == 0) {
+            timeAgo = '${diff.inMinutes}m ago';
+          } else {
+            timeAgo = '${diff.inHours}h ago';
+          }
+        } else if (diff.inDays < 7) {
+          timeAgo = '${diff.inDays}d ago';
+        } else {
+          timeAgo = _formatDate(idea.createdAt);
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: const Color(0xFF2E7D32).withValues(alpha: 0.35),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header: Region Crisis Level + time
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5E9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF81C784), width: 1),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.eco_rounded, size: 14, color: Color(0xFF2E7D32)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${idea.region} Crisis Level ${idea.crisisLevel}',
+                          style: GoogleFonts.fredoka(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF2E7D32),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    timeAgo,
+                    style: GoogleFonts.outfit(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black45,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Solution text
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFAF7F2),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE0D7C6), width: 1),
+                ),
+                child: Text(
+                  idea.solutionText,
+                  style: GoogleFonts.roboto(
+                    fontSize: 12.5,
+                    color: const Color(0xFF3E2723),
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }

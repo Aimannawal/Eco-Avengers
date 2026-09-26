@@ -111,7 +111,7 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
 
   static const String _mapBackgroundPath = 'assets/Element Eco Avenger/map/image-removebg-preview (16).png';
   static const String _waterBackground = 'assets/Element Eco Avenger/Multiplayer page/background (2).png';
-  static const String _grassForeground = 'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_083830_0000.png';
+  static const String _grassForeground = 'assets/Element Eco Avenger/map/image-removebg-preview (23).png';
   static const String _redPin = 'assets/Element Eco Avenger/map/image-removebg-preview (17).png';
 
   late AnimationController _moveController;
@@ -320,13 +320,14 @@ class _InteractiveMapDialogState extends State<InteractiveMapDialog>
             
             // 2. Grass Foreground at the bottom
             Positioned(
-              bottom: -5,
-              left: -10,
-              right: -10,
+              bottom: 0,
+              left: 0,
+              right: 0,
               child: Image.asset(
                 _grassForeground,
                 height: grassHeight,
-                fit: BoxFit.cover,
+                fit: BoxFit.fill,
+                alignment: Alignment.bottomCenter,
               ),
             ),
 

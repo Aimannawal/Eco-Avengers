@@ -114,13 +114,14 @@ class _RegionSelectionPageState extends State<RegionSelectionPage>
           
           // 2. Grass Foreground at the bottom
           Positioned(
-            bottom: -5,
-            left: -10,
-            right: -10,
+            bottom: 0,
+            left: 0,
+            right: 0,
             child: Image.asset(
-              'assets/Element Eco Avenger/Menu page/START_20260830_140036_0000.pdf_20260904_083830_0000.png',
+              'assets/Element Eco Avenger/map/image-removebg-preview (23).png',
               height: grassHeight,
-              fit: BoxFit.cover,
+              fit: BoxFit.fill,
+              alignment: Alignment.bottomCenter,
             ),
           ),
 

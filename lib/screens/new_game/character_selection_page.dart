@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -258,69 +259,95 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
     }
   }
 
-  String _getChibiProfilePath(String title) {
-    return 'assets/vector/$title Profile.png';
-  }
 
   // ─────────────────────────────────────────────────────────
-  // PHONE: vertically scrollable list of horizontal cards
+  // RESPONSIVE 2-ROW CARDS LAYOUT (CANVA DESIGN): 
+  // Top Row: 3 cards, Bottom Row: 2 cards (centered) with full Character Sheet (Badges included)
   // ─────────────────────────────────────────────────────────
-  Widget _buildPhoneLayout() {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        physics: const BouncingScrollPhysics(),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (int i = 0; i < widget.characters.length; i++) ...[
-              _CharacterCard(
-                character: widget.characters[i],
-                onTap: (_characterSelected ||
-                        _isCharacterTaken(widget.characters[i].title))
-                    ? null
-                    : () => _select(widget.characters[i]),
-                profileAsset: _getChibiProfilePath(widget.characters[i].title),
-                takenBy: _getTakenByPlayer(widget.characters[i].title),
-                isWide: false,
-              ),
-              if (i != widget.characters.length - 1) const SizedBox(height: 12),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildCardsLayout() {
+    return LayoutBuilder(
+      builder: (context, cardArea) {
+        final double maxH = cardArea.maxHeight;
+        final double maxW = cardArea.maxWidth;
 
-  // TABLET / DESKTOP: centered wrapping row of cards
-  Widget _buildWideLayout({required bool isWide}) {
-    return Center(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: SizedBox(
-          width: isWide ? (3 * 200 + 2 * 20 + 2) : double.infinity, // Force wrap at 3 cards
-          child: Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: isWide ? 20 : 12,
-            runSpacing: isWide ? 20 : 12,
-            children: [
-              for (int i = 0; i < widget.characters.length; i++)
-                _CharacterCard(
-                  character: widget.characters[i],
-                  onTap: (_characterSelected ||
-                          _isCharacterTaken(widget.characters[i].title))
-                      ? null
-                      : () => _select(widget.characters[i]),
-                  profileAsset: _getChibiProfilePath(widget.characters[i].title),
-                  takenBy: _getTakenByPlayer(widget.characters[i].title),
-                  isWide: isWide,
+        // Character Sheet aspect ratio is ~1.48:1 (width:height)
+        const double cardAspect = 1.48;
+        const double rowSpacing = 8.0;
+        const double colSpacing = 12.0;
+
+        // Use 78% of available space to guarantee cards fit comfortably
+        // inside the parchment without touching or exceeding any edges
+        final double safeW = maxW * 0.78;
+        final double safeH = maxH * 0.77;
+
+        final double widthBasedCardWidth = (safeW - (colSpacing * 2)) / 3;
+        final double widthBasedCardHeight = widthBasedCardWidth / cardAspect;
+
+        final double heightBasedCardHeight = (safeH - rowSpacing) / 2;
+
+        // Take whichever dimension is more constraining
+        double cardHeight = math.min(widthBasedCardHeight, heightBasedCardHeight);
+        double cardWidth = cardHeight * cardAspect;
+
+        // Split characters into row 1 (first 3) and row 2 (remaining 2)
+        final topRow = widget.characters.take(3).toList();
+        final bottomRow = widget.characters.skip(3).toList();
+
+        return Center(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Top Row: 3 cards (Energy Scientist, Ecologist, Environmental Activist)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (int i = 0; i < topRow.length; i++) ...[
+                      _CharacterCard(
+                        character: topRow[i],
+                        onTap: (_characterSelected ||
+                                _isCharacterTaken(topRow[i].title))
+                            ? null
+                            : () => _select(topRow[i]),
+                        takenBy: _getTakenByPlayer(topRow[i].title),
+                        cardWidth: cardWidth,
+                        cardHeight: cardHeight,
+                      ),
+                      if (i != topRow.length - 1)
+                        SizedBox(width: colSpacing),
+                    ],
+                  ],
                 ),
-            ],
+                SizedBox(height: rowSpacing),
+                // Bottom Row: 2 cards (Policymaker, Climate Engineer) centered
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (int i = 0; i < bottomRow.length; i++) ...[
+                      _CharacterCard(
+                        character: bottomRow[i],
+                        onTap: (_characterSelected ||
+                                _isCharacterTaken(bottomRow[i].title))
+                            ? null
+                            : () => _select(bottomRow[i]),
+                        takenBy: _getTakenByPlayer(bottomRow[i].title),
+                        cardWidth: cardWidth,
+                        cardHeight: cardHeight,
+                      ),
+                      if (i != bottomRow.length - 1)
+                        SizedBox(width: colSpacing),
+                    ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -440,12 +467,12 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
                                 ),
                                 child: Padding(
                                   padding: EdgeInsets.only(
-                                    top: isPhone ? 60 : 90,
-                                    bottom: isPhone ? 20 : 30,
-                                    left: isPhone ? 10 : 20,
-                                    right: isPhone ? 10 : 20,
+                                    top: isPhone ? 38 : 52,
+                                    bottom: isPhone ? 22 : 36,
+                                    left: isPhone ? 15 : 25,
+                                    right: isPhone ? 15 : 25,
                                   ),
-                                  child: isPhone ? _buildPhoneLayout() : _buildWideLayout(isWide: isWide),
+                                  child: _buildCardsLayout(),
                                 ),
                               ),
                             ),
@@ -570,20 +597,20 @@ class _CharacterSelectionPageState extends State<CharacterSelectionPage>
 }
 
 // ─────────────────────────────────────────────────────────
-// _CharacterCard – parchment-styled selectable card
+// _CharacterCard – displays the complete Character Sheet (with LEVEL UP badges)
 // ─────────────────────────────────────────────────────────
 class _CharacterCard extends StatefulWidget {
   final CharacterOption character;
   final VoidCallback? onTap;
-  final String profileAsset;
   final RoomPlayer? takenBy;
-  final bool isWide;
+  final double cardWidth;
+  final double cardHeight;
 
   const _CharacterCard({
     required this.character,
     required this.onTap,
-    required this.profileAsset,
-    required this.isWide,
+    required this.cardWidth,
+    required this.cardHeight,
     this.takenBy,
   });
 
@@ -593,120 +620,102 @@ class _CharacterCard extends StatefulWidget {
 
 class _CharacterCardState extends State<_CharacterCard> {
   bool _pressed = false;
+  bool _hovered = false;
+
+  String _getCharacterSheetPath(String title) {
+    return 'assets/character_sheet/Character Sheet-$title.png';
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDisabled = widget.onTap == null;
     final isTaken = widget.takenBy != null;
+
     return MouseRegion(
       cursor: isDisabled ? SystemMouseCursors.forbidden : SystemMouseCursors.click,
+      onEnter: (_) {
+        if (!isDisabled) setState(() => _hovered = true);
+      },
+      onExit: (_) {
+        if (!isDisabled) setState(() => _hovered = false);
+      },
       child: GestureDetector(
         onTapDown: isDisabled ? null : (_) => setState(() => _pressed = true),
         onTapUp: isDisabled ? null : (_) => setState(() => _pressed = false),
         onTapCancel: isDisabled ? null : () => setState(() => _pressed = false),
         onTap: widget.onTap,
         child: AnimatedOpacity(
-          opacity: isDisabled ? 0.65 : 1.0,
+          opacity: isDisabled ? 0.60 : 1.0,
           duration: const Duration(milliseconds: 200),
           child: AnimatedScale(
-            scale: _pressed ? 0.96 : 1.0,
-            duration: const Duration(milliseconds: 100),
-            child: _buildPrototypeCard(isTaken),
+            scale: _pressed ? 0.96 : (_hovered ? 1.03 : 1.0),
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: _buildSheetCard(isTaken),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildPrototypeCard(bool isTaken) {
+  Widget _buildSheetCard(bool isTaken) {
+    final sheetPath = _getCharacterSheetPath(widget.character.title);
+
     return Container(
-      width: widget.isWide ? 200 : 150,
-      height: widget.isWide ? 280 : 220,
+      width: widget.cardWidth,
+      height: widget.cardHeight,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD4D4D4), width: 4),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, offset: Offset(2, 4), blurRadius: 4),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _hovered
+              ? widget.character.accentColor
+              : const Color(0xFFD4D4D4),
+          width: _hovered ? 3.0 : 2.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _hovered
+                ? widget.character.accentColor.withOpacity(0.35)
+                : Colors.black.withOpacity(0.18),
+            offset: const Offset(2, 4),
+            blurRadius: _hovered ? 8 : 4,
+          ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            // Title
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  widget.character.title.toUpperCase(),
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.fredoka(
-                    fontSize: widget.isWide ? 14 : 11,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF2E86AB),
-                    letterSpacing: 0.5,
-                  ),
-                ),
+            Padding(
+              padding: const EdgeInsets.all(2.5),
+              child: Image.asset(
+                sheetPath,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                errorBuilder: (context, error, stackTrace) {
+                  return Image.asset(
+                    widget.character.assetPath,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                  );
+                },
               ),
             ),
-            const SizedBox(height: 4),
-            // Image Box
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: widget.character.accentColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Image.asset(
-                        widget.profileAsset,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    if (isTaken) _buildTakenOverlay(isSmall: false),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Description
-            SizedBox(
-              height: widget.isWide ? 44 : 36,
-              child: Center(
-                child: Text(
-                  widget.character.description,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.roboto(
-                    fontSize: widget.isWide ? 10 : 8,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                    height: 1.1,
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
+            if (isTaken) _buildTakenOverlay(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTakenOverlay({required bool isSmall}) {
+  Widget _buildTakenOverlay() {
     return Positioned.fill(
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.60),
-          borderRadius: BorderRadius.circular(4),
+          color: Colors.black.withOpacity(0.65),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Center(
           child: Column(
@@ -714,8 +723,8 @@ class _CharacterCardState extends State<_CharacterCard> {
             children: [
               if (widget.takenBy != null) ...[
                 Container(
-                  width: isSmall ? 32 : 44,
-                  height: isSmall ? 32 : 44,
+                  width: (widget.cardHeight * 0.32).clamp(24.0, 36.0),
+                  height: (widget.cardHeight * 0.32).clamp(24.0, 36.0),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
@@ -728,17 +737,18 @@ class _CharacterCardState extends State<_CharacterCard> {
                     color: Colors.white24,
                   ),
                   child: widget.takenBy!.avatarUrl == null
-                      ? Icon(Icons.person,
-                          color: Colors.white70, size: isSmall ? 16 : 22)
+                      ? const Icon(Icons.person,
+                          color: Colors.white70, size: 18)
                       : null,
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   widget.takenBy!.playerName,
                   style: GoogleFonts.vt323(
-                      fontSize: isSmall ? 12 : 14,
-                      color: Colors.white,
-                      height: 1),
+                    fontSize: (widget.cardHeight * 0.16).clamp(11.0, 15.0),
+                    color: Colors.white,
+                    height: 1,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -754,9 +764,10 @@ class _CharacterCardState extends State<_CharacterCard> {
                 child: Text(
                   'TAKEN',
                   style: GoogleFonts.vt323(
-                      fontSize: isSmall ? 13 : 16,
-                      color: Colors.white,
-                      letterSpacing: 1),
+                    fontSize: (widget.cardHeight * 0.18).clamp(12.0, 16.0),
+                    color: Colors.white,
+                    letterSpacing: 1,
+                  ),
                 ),
               ),
             ],

@@ -6,6 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/auth_service.dart';
 import '../services/sound_service.dart';
+import '../services/network_permission_service.dart';
+import '../widgets/online_permission_dialog.dart';
 import 'auth/login_register_screen.dart';
 import 'leaderboard/leaderboard_screen.dart';
 import 'new_game/mode_selection_page.dart';
@@ -57,7 +59,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _musicOn = true;
 
   static const String _howToPlayUrl =
-      'https://drive.google.com/drive/folders/18EefL9mSZ4pz9ys0KcBkWazvS4MR3niS';
+      'https://canva.link/howtoplayecoavengers';
 
   @override
   void initState() {
@@ -65,6 +67,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _musicOn = SoundService.instance.isMusicEnabled;
     _initAnimations();
     _loadProfile();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkOnlinePermission();
+    });
+  }
+
+  Future<void> _checkOnlinePermission() async {
+    final asked = await NetworkPermissionService.instance.hasAskedPermission();
+    if (!asked && mounted) {
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted) {
+        await OnlinePermissionDialog.show(context);
+      }
+    }
   }
 
   void _initAnimations() {
