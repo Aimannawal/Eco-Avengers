@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-const _tutorialUrl = 'https://drive.google.com/drive/folders/18EefL9mSZ4pz9ys0KcBkWazvS4MR3niS';
+const _tutorialUrl = 'https://canva.link/howtoplayecoavengers';
 
 Future<void> showHowToPlayDialog(BuildContext context) {
   return showGeneralDialog(
