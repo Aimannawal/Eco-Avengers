@@ -15,7 +15,7 @@ dependencies:
   google_fonts: ^6.1.0
   url_launcher: ^6.1.7
   flutter_svg: ^2.1.0
-  feather_icons:
+  flutter_feather_icons:
     path: ./patches/flutter_feather_icons
   supabase_flutter: ^2.8.4
   shared_preferences: ^2.3.3
